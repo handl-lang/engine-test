@@ -507,6 +507,11 @@ name = "handl-lib-dedent"
 version = "0.1.0"
 
 [[package]]
+name = "handl-lib-desugar"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/lib-desugar?branch=main#a717669d040a76b212efa5a2218ada3231eeb0b5"
+
+[[package]]
 name = "handl-lib-encoding"
 version = "0.1.0"
 dependencies = [
@@ -565,6 +570,11 @@ name = "handl-lib-json"
 version = "0.1.0"
 
 [[package]]
+name = "handl-lib-loader"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/lib-loader?branch=main#af01d60c31b743ba167924793f91a998ebf5a808"
+
+[[package]]
 name = "handl-lib-mood"
 version = "0.1.0"
 source = "git+https://github.com/handl-lang/kernel?branch=main#1a5be2bc83864c0d269e1dd92c2ad0c70dcf499c"
@@ -611,6 +621,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "handl-lib-pred"
+version = "0.1.0"
+
+[[package]]
 name = "handl-lib-prim"
 version = "0.1.0"
 source = "git+https://github.com/handl-lang/kernel?branch=main#1a5be2bc83864c0d269e1dd92c2ad0c70dcf499c"
@@ -647,6 +661,11 @@ version = "0.1.0"
 [[package]]
 name = "handl-lib-str-handl"
 version = "0.1.0"
+
+[[package]]
+name = "handl-lib-tag"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/lib-tag?branch=main#5ad683b9d09d1c8f038f515b6a098e23b215dfc6"
 
 [[package]]
 name = "handl-lib-tar"
@@ -787,6 +806,8 @@ version = "0.1.0"
 dependencies = [
  "handl-language",
  "handl-lib-dedent",
+ "handl-lib-desugar",
+ "handl-lib-loader",
  "handl-lib-str-handl",
  "handl-platform",
  "handl-plugin-lib-char-native",
@@ -987,6 +1008,7 @@ name = "handl-plugin-lib-tag"
 version = "0.1.0"
 dependencies = [
  "handl-language",
+ "handl-lib-tag",
  "handl-platform",
  "handl-plugin-lib-handl",
  "serde_json",
@@ -1176,6 +1198,7 @@ version = "0.1.0"
 dependencies = [
  "handl-kit-canonical",
  "handl-language",
+ "handl-lib-pred",
  "handl-platform",
  "handl-plugin-exec-cache",
  "handl-plugin-ext-diag",
@@ -2188,7 +2211,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[patch.unused]]
-name = "handl-lib-ops"
+name = "handl-lib-mood"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -2196,27 +2219,7 @@ name = "handl-lib-prim-handl"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-lib-combinators"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-lib-mood"
-version = "0.1.0"
-
-[[patch.unused]]
 name = "handl-lib-obj"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-lib-prim"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-lib-type"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-test-utils"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -2224,7 +2227,27 @@ name = "handl-lib-error"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-test-utils"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-lib-prim"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-lib-combinators"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-lib-cmp"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-lib-type"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-lib-ops"
 version = "0.1.0"
 
 [[patch.unused]]
