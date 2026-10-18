@@ -1,4 +1,4 @@
-//! # handl-plugin-engine-test
+//! # hnl-engine-test
 //!
 //! Bootstrap test runner (ADR-0089).
 //!

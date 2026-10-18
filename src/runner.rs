@@ -53,10 +53,10 @@ use handl_language::{
 
 use handl_platform::{EvalContext, Function, Module, ModuleLookup};
 use handl_plugin_lib_handl::HandlModule;
-use handl_plugin_engine_exec_tree_walk::{AssertFailure, AssertHandler, TreeWalkEngine};
-use handl_plugin_engine_lex_pattern::DataLexerEngine;
-use handl_plugin_engine_parse::ParserEngine;
-use handl_plugin_engine_parse_pratt::PrattEngine;
+use hnl_engine_exec_tree_walk::{AssertFailure, AssertHandler, TreeWalkEngine};
+use hnl_engine_lex_pattern::DataLexerEngine;
+use hnl_engine_parse::ParserEngine;
+use hnl_engine_parse_pratt::PrattEngine;
 use handl_plugin_exec_cache::AstKey;
 use handl_plugin_ext_diag::{Span, StatementChunk};
 use handl_plugin_ext_refinement::{Dialect, detect_dialect};
@@ -689,11 +689,11 @@ fn test_decl_roles(lang: &Language, kind: &str) -> Option<(usize, usize)> {
 
 /// Parse a single statement chunk into an [`Ast`].
 fn parse_chunk(lang: &Language, text: &str) -> Result<Ast, String> {
-    let tokens = handl_plugin_engine_lex_pattern::lex(lang, text).map_err(|e| e.to_string())?;
+    let tokens = hnl_engine_lex_pattern::lex(lang, text).map_err(|e| e.to_string())?;
     if tokens.as_slice().is_empty() {
         return Ok(Ast::new());
     }
-    let req = handl_plugin_engine_parse::ParserRequest::new(tokens);
+    let req = hnl_engine_parse::ParserRequest::new(tokens);
     PrattEngine::new()
         .parse(lang, &req)
         .map_err(|e| e.to_string())
@@ -1125,7 +1125,7 @@ pub fn run_with_filter(source: &TestKitSource, plan: &TestPlan, filter: &str) ->
 // `{ names: [..], tags: [..] }` and the `pred.matches` host call.
 
 /// The handl source for the `pred` predicate/filter library.
-const PRED_HNL: &str = include_str!("../../../handl-packages/pred/pred.hnl");
+const PRED_HNL: &str = include_str!("../../platform/handl-packages/pred/pred.hnl");
 
 /// The record field names exposed by `pred.hnl` — each becomes a callable
 /// [`Function`] on the `pred` module.

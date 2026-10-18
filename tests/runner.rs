@@ -3,11 +3,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use handl_plugin_engine_test::config::{RunConfig, run_with_config};
-use handl_plugin_engine_test::events::TestEvent;
-use handl_plugin_engine_test::provider::{FileSystemProvider, TestProvider, discover_with};
-use handl_plugin_engine_test::report::{HumanReporter, JsonReporter, Reporter, summarize};
-use handl_plugin_engine_test::runner::{
+use hnl_engine_test::config::{RunConfig, run_with_config};
+use hnl_engine_test::events::TestEvent;
+use hnl_engine_test::provider::{FileSystemProvider, TestProvider, discover_with};
+use hnl_engine_test::report::{HumanReporter, JsonReporter, Reporter, summarize};
+use hnl_engine_test::runner::{
     DiscoverError, TestKitSource, TestPlan, TestResult, TestRunCache, base_runtime, discover,
     filter_predicate, format_report_human, format_report_json, run, run_selected,
     run_selected_cached, run_with_filter, tag_predicate,
@@ -115,7 +115,7 @@ fn run_selected_parallel_matches_sequential_order() {
     let par = run_selected(
         &src(),
         &plan,
-        &handl_plugin_engine_test::Filter::all(),
+        &hnl_engine_test::Filter::all(),
         &SchedulePolicy::parallel(4),
     );
     let seq_results: Vec<(&str, &TestResult)> = seq
@@ -463,7 +463,7 @@ fn cached_second_run_replays_identical_results() {
     // identical in ordering and content.
     let plan = discover(&src(), &[fixture("mixed.handl")]).unwrap();
     let mut cache = TestRunCache::new();
-    let pred = handl_plugin_engine_test::Filter::all();
+    let pred = hnl_engine_test::Filter::all();
     let policy = SchedulePolicy::sequential();
 
     let first = run_selected_cached(&src(), &plan, &pred, &policy, &mut cache);
@@ -497,7 +497,7 @@ fn cache_is_opt_in_and_invalidates_on_source_change() {
     // different fingerprint and re-evaluates.
     let plan = discover(&src(), &[fixture("mixed.handl")]).unwrap();
     let mut cache = TestRunCache::new();
-    let pred = handl_plugin_engine_test::Filter::all();
+    let pred = hnl_engine_test::Filter::all();
     let policy = SchedulePolicy::sequential();
 
     // run / run_selected do not use a cache — nothing to assert on the
