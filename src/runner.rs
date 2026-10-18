@@ -1125,7 +1125,7 @@ pub fn run_with_filter(source: &TestKitSource, plan: &TestPlan, filter: &str) ->
 // `{ names: [..], tags: [..] }` and the `pred.matches` host call.
 
 /// The handl source for the `pred` predicate/filter library.
-const PRED_HNL: &str = include_str!("../../platform/handl-packages/pred/pred.hnl");
+const PRED_HNL: &str = include_str!("../../host/handl-packages/pred/pred.hnl");
 
 /// The record field names exposed by `pred.hnl` — each becomes a callable
 /// [`Function`] on the `pred` module.
