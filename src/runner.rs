@@ -1928,7 +1928,7 @@ mod tests {
     thread_local! {
         /// Thread-cached canonical kit for the runner unit tests — the
         /// same cache shape a host keeps (ADR-0128 §0.8; dev-dep only).
-        static TEST_KIT: RefCell<Option<handl_kit_canonical::Kit>> =
+        static TEST_KIT: RefCell<Option<handl_kit_prelude::Kit>> =
             const { RefCell::new(None) };
     }
 
@@ -1938,11 +1938,11 @@ mod tests {
     /// the process-wide default language (ADR-0128 §"The 0.8 seam"). Test
     /// binaries have no host to install it, and runners that isolate each
     /// test in its own process (nextest) would otherwise fail with "no
-    /// language available". [`handl_kit_canonical::Kit::new`] performs the
+    /// language available". [`handl_kit_prelude::Kit::new`] performs the
     /// install; the assembly is cached in the process-wide `OnceLock`.
     pub(super) fn ensure_lang() {
         if handl_plugin_lib_handl::default_language().is_none() {
-            let _ = handl_kit_canonical::Kit::new().expect("canonical kit assembles");
+            let _ = handl_kit_prelude::Kit::new().expect("canonical kit assembles");
         }
     }
 
@@ -1954,7 +1954,7 @@ mod tests {
                 let mut slot = cell.borrow_mut();
                 if slot.is_none() {
                     *slot = Some(
-                        handl_kit_canonical::Kit::new().expect("canonical kit assembles"),
+                        handl_kit_prelude::Kit::new().expect("canonical kit assembles"),
                     );
                 }
                 let kit = slot.as_ref().expect("kit populated above");

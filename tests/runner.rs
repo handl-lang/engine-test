@@ -25,7 +25,7 @@ fn fixture(name: &str) -> PathBuf {
 thread_local! {
     /// Thread-cached canonical kit — the host-side shape the injected
     /// factory mirrors (ADR-0128 §0.8; the kit is a dev-dep).
-    static TEST_KIT: std::cell::RefCell<Option<handl_kit_canonical::Kit>> =
+    static TEST_KIT: std::cell::RefCell<Option<handl_kit_prelude::Kit>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -37,7 +37,7 @@ fn src() -> TestKitSource {
             let mut slot = cell.borrow_mut();
             if slot.is_none() {
                 *slot =
-                    Some(handl_kit_canonical::Kit::new().expect("canonical kit assembles"));
+                    Some(handl_kit_prelude::Kit::new().expect("canonical kit assembles"));
             }
             let kit = slot.as_ref().expect("kit populated above");
             Ok::<_, String>(base_runtime(
