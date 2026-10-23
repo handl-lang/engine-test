@@ -1,0 +1,11 @@
+# The `pred`/`test` `.hnl` modules this crate drives evaluate
+# metacircularly under the tree-walk engine — nested arrow applications
+# legitimately need ~16–64 MiB of *debug* stack (the
+# `dependent_structure`/`indexed_family_*` suites spawn 64 MiB threads
+# for the same budget). The 8 MiB per-test-thread default SIGABRTs
+# those cases; raise the floor so `cargo test` in this repo gives every
+# test thread enough headroom. (Individual tests that must pass under
+# foreign invocation wrap their bodies in a 64 MiB spawned thread
+# instead.)
+[env]
+RUST_MIN_STACK = "67108864"

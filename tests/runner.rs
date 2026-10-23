@@ -278,6 +278,20 @@ fn run_assert_keyword() {
 
 #[test]
 fn assert_keyword_truthy_failure_carries_detail() {
+    // The name filter evaluates the `pred` `.hnl` module metacircularly
+    // — legitimately deep eval (~16–32 MiB of debug stack; the
+    // `dependent_structure`/`indexed_family_*` pattern). Run the body on
+    // a large-stack thread; the assertion is about filter/detail
+    // semantics, not the recursion budget.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(assert_keyword_truthy_failure_carries_detail_impl)
+        .expect("spawn eval thread")
+        .join()
+        .expect("eval thread panicked");
+}
+
+fn assert_keyword_truthy_failure_carries_detail_impl() {
     // A standalone failing truthy assertion should record expected/actual.
     let plan = discover(&src(), &[fixture("assert_keyword.handl")]).unwrap();
     // Select only the truthy pass (assert "hello"), which passes.

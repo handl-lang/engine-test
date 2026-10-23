@@ -2367,6 +2367,21 @@ test tagged_fast = 1 + 1
 
     #[test]
     fn filter_eval_via_pred_module() {
+        // `pred.matches` is a `.hnl` module evaluated metacircularly
+        // under the tree-walk engine — the nested arrow applications
+        // legitimately need ~16–32 MiB of *debug* stack (the same
+        // budget `dependent_structure`/`indexed_family_*` tests spawn
+        // for). Run the body on a large-stack thread; the assertion is
+        // about filter semantics, not the recursion budget.
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(filter_eval_via_pred_module_impl)
+            .expect("spawn eval thread")
+            .join()
+            .expect("eval thread panicked");
+    }
+
+    fn filter_eval_via_pred_module_impl() {
         ensure_lang();
         // Substring and glob name filters evaluate through `pred.matches`.
         let case = tagged_case(&[]);
