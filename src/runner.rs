@@ -1318,8 +1318,22 @@ thread_local! {
 
 /// Whether a test-body value is an `err`-tagged result (the `assert`
 /// keyword returns `result.err(...)` on failure; ADR-0077, ADR-0089).
+///
+/// Two producer shapes read identically: the host-minted `__tag__`
+/// record (the `assert` op's channel — a value-shape convention) and
+/// the canonical `__ctor__` object lib-result's `result.err` produces
+/// (ADR-0152 §2, phase-3 WS-F — the ctor sym's display name is the
+/// seed's last `.`-segment, so `data.Result.err` reads `err`).
 fn is_err_result(value: &Value) -> bool {
-    as_tag(value) == Some("err")
+    if as_tag(value) == Some("err") {
+        return true;
+    }
+    value
+        .get("__ctor__")
+        .and_then(|c| c.get("__sym__"))
+        .and_then(|s| s.get("name"))
+        .and_then(|n| n.as_str())
+        == Some("err")
 }
 
 /// Extract the human-readable message from an `err`-tagged result value.
