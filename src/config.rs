@@ -16,8 +16,7 @@ use handl_plugin_lib_scheduler::SchedulePolicy;
 
 use crate::events::TestEvent;
 use crate::runner::{
-    self, Filter, RunReport, TestKitSource, TestPlan, TestRunCache, filter_predicate,
-    tag_predicate,
+    self, Filter, RunReport, TestKitSource, TestPlan, TestRunCache, filter_predicate, tag_predicate,
 };
 
 /// Configuration for a single test run.
@@ -28,6 +27,7 @@ use crate::runner::{
 /// `events` is an output sink: [`run_with_config`] appends every
 /// [`TestEvent`] to it (in canonical plan order — see
 /// [`crate::events`]). Clear it between runs if the config is reused.
+#[derive(Default)]
 pub struct RunConfig {
     /// Selection filter (`--filter`/`--tag`). [`Filter::all`]
     /// selects all tests.
@@ -40,17 +40,6 @@ pub struct RunConfig {
     pub cache: Option<TestRunCache>,
     /// Structured events emitted during the run (output sink).
     pub events: Vec<TestEvent>,
-}
-
-impl Default for RunConfig {
-    fn default() -> Self {
-        Self {
-            predicate: Filter::all(),
-            policy: SchedulePolicy::default(),
-            cache: None,
-            events: Vec::new(),
-        }
-    }
 }
 
 impl RunConfig {

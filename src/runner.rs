@@ -22,7 +22,7 @@
 //! The first test passes (the expression evaluates without error); the second
 //! fails (the assertion returns a `result.err` value). If the grammar later gains a `test`
 //! keyword, the runner also checks for node kinds containing `"test"` (see
-//! [`discover_tests_in_module`]).
+//! `discover_tests_in_module`).
 //!
 //! # Determinism
 //!
@@ -52,17 +52,17 @@ use handl_language::{
 };
 
 use handl_platform::{EvalContext, Function, Module, ModuleLookup};
-use handl_plugin_lib_handl::HandlModule;
-use hnl_engine_exec_tree_walk::{AssertFailure, AssertHandler, TreeWalkEngine};
-use hnl_engine_lex_pattern::DataLexerEngine;
-use hnl_engine_parse::ParserEngine;
-use hnl_engine_parse_pratt::PrattEngine;
 use handl_plugin_exec_cache::AstKey;
 use handl_plugin_ext_diag::{Span, StatementChunk};
 use handl_plugin_ext_refinement::{Dialect, detect_dialect};
 use handl_plugin_lib_char_native::CharModule;
+use handl_plugin_lib_handl::HandlModule;
 use handl_plugin_lib_scheduler::{BoundedScheduler, JobError, SchedulePolicy};
 use handl_runtime::Runtime;
+use hnl_engine_exec_tree_walk::{AssertFailure, AssertHandler, TreeWalkEngine};
+use hnl_engine_lex_pattern::DataLexerEngine;
+use hnl_engine_parse::ParserEngine;
+use hnl_engine_parse_pratt::PrattEngine;
 
 use crate::events::TestEvent;
 
@@ -266,7 +266,7 @@ enum TestState {
 // ---------------------------------------------------------------------------
 
 /// A top-level statement chunk (alias for the shared
-/// [`StatementChunk`](handl_plugin_ext_diag::StatementChunk)).
+/// [`StatementChunk`]).
 type Chunk = StatementChunk;
 
 /// Split `src` into top-level statement chunks.
@@ -322,9 +322,7 @@ fn import_preamble(src: &str, module: &Path) -> String {
     // actually-needed binding fails loudly at eval — same as a missing file.
     let deps = base
         .as_deref()
-        .map(|dir| {
-            handl_platform::config::discover_dependencies(dir).unwrap_or_default()
-        })
+        .map(|dir| handl_platform::config::discover_dependencies(dir).unwrap_or_default())
         .unwrap_or_default();
     let mut preamble = String::new();
     for chunk in handl_plugin_ext_diag::split_statements(src) {
@@ -336,17 +334,15 @@ fn import_preamble(src: &str, module: &Path) -> String {
         // executable); bind `name := "name"` so the bare name dispatches
         // through the module chain. Only the quoted `import "<spec>"`
         // form is a file import.
-        if let Some(rest) = trimmed.strip_prefix("import") {
-            if rest.starts_with(' ') || rest.starts_with('\t') {
-                let inner = rest.trim_start();
-                if !inner.starts_with('"') && !inner.starts_with('\'') {
-                    for (local, expr, _) in
-                        handl_runtime::module_prep::host_import_bindings(trimmed)
-                    {
-                        preamble.push_str(&format!("{local} := {expr};\n"));
-                    }
-                    continue;
+        if let Some(rest) = trimmed.strip_prefix("import")
+            && (rest.starts_with(' ') || rest.starts_with('\t'))
+        {
+            let inner = rest.trim_start();
+            if !inner.starts_with('"') && !inner.starts_with('\'') {
+                for (local, expr, _) in handl_runtime::module_prep::host_import_bindings(trimmed) {
+                    preamble.push_str(&format!("{local} := {expr};\n"));
                 }
+                continue;
             }
         }
         let Some(spec) = first_quoted_spec(trimmed) else {
@@ -354,13 +350,12 @@ fn import_preamble(src: &str, module: &Path) -> String {
         };
         // Dependency-name resolution first (mirroring `ModuleLoader`: a dep
         // name shadows a same-named relative directory), then the bases.
-        let resolved = resolve_dep_spec(spec, &deps)
-            .or_else(|| {
-                [&base, &cwd]
-                    .into_iter()
-                    .flatten()
-                    .find_map(|b| resolve_spec_to_file(spec, b))
-            });
+        let resolved = resolve_dep_spec(spec, &deps).or_else(|| {
+            [&base, &cwd]
+                .into_iter()
+                .flatten()
+                .find_map(|b| resolve_spec_to_file(spec, b))
+        });
         if let Some(path) = resolved {
             // Splice the absolute path back into the statement text.
             let abs = path.to_string_lossy();
@@ -730,14 +725,12 @@ fn discover_tests_in_module(
         let mut is_test = test_decl_roles(lang, &root.kind).is_some() || root.kind.contains("test");
         if !is_test {
             let (target_idx, _value_idx) = binding_roles(lang, &root.kind);
-            if let Some(ti) = target_idx {
-                if let Some(&target_raw) = children_of(root).get(ti) {
-                    if let Ok(target_node) = ast.at(AstRef::new(target_raw)) {
-                        if let Some(name) = var_name(lang, &ast, target_node) {
-                            is_test = name.starts_with("test_");
-                        }
-                    }
-                }
+            if let Some(ti) = target_idx
+                && let Some(&target_raw) = children_of(root).get(ti)
+                && let Ok(target_node) = ast.at(AstRef::new(target_raw))
+                && let Some(name) = var_name(lang, &ast, target_node)
+            {
+                is_test = name.starts_with("test_");
             }
         }
         if !is_test {
@@ -762,28 +755,24 @@ fn discover_tests_in_module(
         // resolved via `child_role_index`, ADR-0081).
         if let Some((name_idx, _body_idx)) = test_decl_roles(lang, &root.kind) {
             let children = children_of(root);
-            if let Some(&name_raw) = children.get(name_idx) {
-                if let Ok(name_node) = ast.at(AstRef::new(name_raw)) {
-                    if let Some(name) = var_name(lang, &ast, name_node) {
-                        // The body expression is the text after the `=`
-                        // separator in the declaration chunk.
-                        let body_source = extract_body_source(&chunk.text);
-                        let span = Span::from_byte_range(
-                            chunk.offset,
-                            chunk.offset + chunk.text.len(),
-                            src,
-                        );
-                        let tags = extract_doc_tags(src, chunk.offset);
-                        tests.push(TestCase {
-                            module: module.to_path_buf(),
-                            name,
-                            body_source,
-                            preamble: preamble.clone(),
-                            span,
-                            tags,
-                        });
-                    }
-                }
+            if let Some(&name_raw) = children.get(name_idx)
+                && let Ok(name_node) = ast.at(AstRef::new(name_raw))
+                && let Some(name) = var_name(lang, &ast, name_node)
+            {
+                // The body expression is the text after the `=`
+                // separator in the declaration chunk.
+                let body_source = extract_body_source(&chunk.text);
+                let span =
+                    Span::from_byte_range(chunk.offset, chunk.offset + chunk.text.len(), src);
+                let tags = extract_doc_tags(src, chunk.offset);
+                tests.push(TestCase {
+                    module: module.to_path_buf(),
+                    name,
+                    body_source,
+                    preamble: preamble.clone(),
+                    span,
+                    tags,
+                });
             }
             continue;
         }
@@ -796,34 +785,30 @@ fn discover_tests_in_module(
         let (target_idx, value_idx) = binding_roles(lang, &root.kind);
         if let (Some(ti), Some(vi)) = (target_idx, value_idx) {
             let children = children_of(root);
-            if let (Some(&target_raw), Some(&value_raw)) = (children.get(ti), children.get(vi)) {
-                if let (Ok(target_node), Ok(_value_node)) = (
+            if let (Some(&target_raw), Some(&value_raw)) = (children.get(ti), children.get(vi))
+                && let (Ok(target_node), Ok(_value_node)) = (
                     ast.at(AstRef::new(target_raw)),
                     ast.at(AstRef::new(value_raw)),
-                ) {
-                    if let Some(name) = var_name(lang, &ast, target_node) {
-                        // Test convention: name starts with `test_` or the
-                        // node kind contains "test".
-                        if name.starts_with("test_") || is_test_kind {
-                            // Extract the body source: the text after `=`
-                            // in the chunk, or the whole chunk if no `=`.
-                            let body_source = extract_body_source(&chunk.text);
-                            let span = Span::from_byte_range(
-                                chunk.offset,
-                                chunk.offset + chunk.text.len(),
-                                src,
-                            );
-                            let tags = extract_doc_tags(src, chunk.offset);
-                            tests.push(TestCase {
-                                module: module.to_path_buf(),
-                                name,
-                                body_source,
-                                preamble: preamble.clone(),
-                                span,
-                                tags,
-                            });
-                        }
-                    }
+                )
+                && let Some(name) = var_name(lang, &ast, target_node)
+            {
+                // Test convention: name starts with `test_` or the
+                // node kind contains "test".
+                if name.starts_with("test_") || is_test_kind {
+                    // Extract the body source: the text after `=`
+                    // in the chunk, or the whole chunk if no `=`.
+                    let body_source = extract_body_source(&chunk.text);
+                    let span =
+                        Span::from_byte_range(chunk.offset, chunk.offset + chunk.text.len(), src);
+                    let tags = extract_doc_tags(src, chunk.offset);
+                    tests.push(TestCase {
+                        module: module.to_path_buf(),
+                        name,
+                        body_source,
+                        preamble: preamble.clone(),
+                        span,
+                        tags,
+                    });
                 }
             }
         }
@@ -902,10 +887,10 @@ fn collect_handl_files(dir: &Path, files: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             collect_handl_files(&path, files);
-        } else if let Some(ext) = path.extension() {
-            if ext == "hnl" || ext == "handl" {
-                files.push(path);
-            }
+        } else if let Some(ext) = path.extension()
+            && (ext == "hnl" || ext == "handl")
+        {
+            files.push(path);
         }
     }
 }
@@ -965,10 +950,10 @@ pub(crate) fn discover_inner(
         }
         if path.is_dir() {
             collect_handl_files(path, &mut files);
-        } else if let Some(ext) = path.extension() {
-            if ext == "hnl" || ext == "handl" {
-                files.push(path.clone());
-            }
+        } else if let Some(ext) = path.extension()
+            && (ext == "hnl" || ext == "handl")
+        {
+            files.push(path.clone());
         }
     }
 
@@ -1147,6 +1132,8 @@ const PRED_FUNCS: &[&str] = &[
 static PRED_MODULE: OnceLock<HandlModule> = OnceLock::new();
 
 /// The shared `pred` [`HandlModule`], built lazily on first use.
+// The eval error type is large; this predicate path only reads an Option<Value>.
+#[allow(clippy::result_large_err)]
 fn pred_module() -> &'static HandlModule {
     // `HandlModule` bridge runtimes resolve the process-wide default
     // language; in a test binary no host installs it, so a pred test
@@ -1219,6 +1206,9 @@ impl Filter {
     /// Evaluate the filter against `case` by projecting it to the record
     /// `{ name, path, tags }` and applying the compiled `pred` filter arrow
     /// (`pred.matches`) in a single in-engine evaluation.
+    // The eval error type is large, but this path only needs an Option<Value>
+    // out of a boolean predicate application.
+    #[allow(clippy::result_large_err)]
     pub fn eval(&self, case: &TestCase) -> bool {
         if self.selects_all() {
             return true;
@@ -1377,7 +1367,7 @@ fn failure_detail_from_value(value: &Value) -> FailureDetail {
 ///
 /// For `result.err({...})` this is `value["value"]`; if the value is a
 /// tagged object with fields merged directly it is the object itself.
-fn err_payload<'v>(value: &'v Value) -> Option<&'v serde_json::Map<String, Value>> {
+fn err_payload(value: &Value) -> Option<&serde_json::Map<String, Value>> {
     let obj = value.as_object()?;
     if obj.contains_key(handl_language::TAG_VALUE_KEY) {
         obj.get("value").and_then(|v| v.as_object())
@@ -1390,7 +1380,7 @@ fn err_payload<'v>(value: &'v Value) -> Option<&'v serde_json::Map<String, Value
 ///
 /// `source` is invoked here — inside the job closure, on the worker
 /// thread — to produce the base [`Runtime`] this thread's test runtime is
-/// built from (see [`TEST_RUNTIME`]).
+/// built from (see `TEST_RUNTIME`).
 ///
 /// Returns the [`TestResult`], measured duration, and any structured
 /// failure detail captured from the assert framework. The `Instant` is
@@ -1468,6 +1458,12 @@ fn job_error_result(err: JobError) -> (TestResult, Duration, FailureDetail) {
     }
 }
 
+/// A queued test job: the plan index plus the thunk that runs the case.
+type TestJob = (
+    usize,
+    Box<dyn FnOnce() -> (TestResult, Duration, FailureDetail) + Send>,
+);
+
 /// Run a test plan, selecting tests with a [`Filter`] and executing them
 /// under a [`SchedulePolicy`] via the generic [`BoundedScheduler`]
 /// (ADR-0089 §"Planner + Scheduler").
@@ -1479,7 +1475,7 @@ fn job_error_result(err: JobError) -> (TestResult, Duration, FailureDetail) {
 /// §"Determinism").
 ///
 /// Each worker thread reuses a lazily built [`Runtime`] (see
-/// [`TEST_RUNTIME`]); there is no shared state between tests.
+/// `TEST_RUNTIME`); there is no shared state between tests.
 ///
 /// `source` is the injected base-runtime factory — invoked on each worker
 /// thread (see [`TestKitSource`]).
@@ -1521,10 +1517,7 @@ pub(crate) fn run_selected_impl(
     // it is skipped, served from cache, or must be executed. Build the
     // scheduler jobs for the tests that need to run.
     let mut states: Vec<TestState> = Vec::with_capacity(plan.tests.len());
-    let mut jobs: Vec<(
-        usize,
-        Box<dyn FnOnce() -> (TestResult, Duration, FailureDetail) + Send>,
-    )> = Vec::new();
+    let mut jobs: Vec<TestJob> = Vec::new();
 
     for (i, case) in plan.tests.iter().enumerate() {
         if !predicate.eval(case) {
@@ -1557,10 +1550,7 @@ pub(crate) fn run_selected_impl(
         // can ride into the job and produce the worker's base runtime
         // on-thread.
         let job_source = Arc::clone(source);
-        jobs.push((
-            i,
-            Box::new(move || eval_test_body(&job_source, &body)),
-        ));
+        jobs.push((i, Box::new(move || eval_test_body(&job_source, &body))));
     }
 
     // Plan tests are already sorted by module. Capture each module's range
@@ -1967,12 +1957,13 @@ mod tests {
             TEST_KIT.with(|cell| {
                 let mut slot = cell.borrow_mut();
                 if slot.is_none() {
-                    *slot = Some(
-                        handl_kit_prelude::Kit::new().expect("canonical kit assembles"),
-                    );
+                    *slot = Some(handl_kit_prelude::Kit::new().expect("canonical kit assembles"));
                 }
                 let kit = slot.as_ref().expect("kit populated above");
-                Ok(base_runtime(kit.runtime(), kit.module_root().map(Path::to_path_buf)))
+                Ok(base_runtime(
+                    kit.runtime(),
+                    kit.module_root().map(Path::to_path_buf),
+                ))
             })
         })
     }

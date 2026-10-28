@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use handl_plugin_lib_scheduler::SchedulePolicy;
 use hnl_engine_test::config::{RunConfig, run_with_config};
 use hnl_engine_test::events::TestEvent;
 use hnl_engine_test::provider::{FileSystemProvider, TestProvider, discover_with};
@@ -12,7 +13,6 @@ use hnl_engine_test::runner::{
     filter_predicate, format_report_human, format_report_json, run, run_selected,
     run_selected_cached, run_with_filter, tag_predicate,
 };
-use handl_plugin_lib_scheduler::SchedulePolicy;
 
 /// Helper: path to a fixture file.
 fn fixture(name: &str) -> PathBuf {
@@ -36,8 +36,7 @@ fn src() -> TestKitSource {
         TEST_KIT.with(|cell| {
             let mut slot = cell.borrow_mut();
             if slot.is_none() {
-                *slot =
-                    Some(handl_kit_prelude::Kit::new().expect("canonical kit assembles"));
+                *slot = Some(handl_kit_prelude::Kit::new().expect("canonical kit assembles"));
             }
             let kit = slot.as_ref().expect("kit populated above");
             Ok::<_, String>(base_runtime(

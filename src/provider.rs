@@ -197,7 +197,7 @@ fn changed_files(paths: &[PathBuf]) -> Result<HashSet<PathBuf>, String> {
             let is_handl = p
                 .extension()
                 .and_then(|s| s.to_str())
-                .map_or(false, |ext| ext == "hnl" || ext == "handl");
+                .is_some_and(|ext| ext == "hnl" || ext == "handl");
             if is_handl {
                 let canonical = std::fs::canonicalize(&p).unwrap_or(p);
                 files.insert(canonical);

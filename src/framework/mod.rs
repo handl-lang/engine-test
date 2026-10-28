@@ -16,7 +16,7 @@ thread_local! {
     /// populate [`FailureDetail`] without parsing the human-readable error
     /// message. It is cleared before each test body and taken when the test
     /// fails.
-    static LAST_ASSERT_FAILURE: RefCell<Option<FailureDetail>> = RefCell::new(None);
+    static LAST_ASSERT_FAILURE: RefCell<Option<FailureDetail>> = const { RefCell::new(None) };
 }
 
 /// Set the last assert failure detail for the current worker thread.
