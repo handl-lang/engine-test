@@ -1109,25 +1109,25 @@ pub fn run_with_filter(source: &TestKitSource, plan: &TestPlan, filter: &str) ->
 // `plugin-lib-predicate` crate). Rust keeps only the spec record
 // `{ names: [..], tags: [..] }` and the `pred.matches` host call.
 
-/// The handl source for the `pred` predicate/filter library.
-const PRED_HNL: &str = handl_lib_pred::PRED_HNL;
+/// The `pred` package directory (ADR-0160): the sibling checkout in a workspace,
+/// or the loader's package cache when `HANDL_PKG_DIR` is set. The package is
+/// plain `.hnl` — there is no Rust shell to `include_str!` any more.
+fn pred_package_dir() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("HANDL_PKG_DIR") {
+        return std::path::PathBuf::from(dir).join("lib-pred");
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../lib-pred")
+}
 
-/// The record field names exposed by `pred.hnl` — each becomes a callable
-/// [`Function`] on the `pred` module.
-const PRED_FUNCS: &[&str] = &[
-    "always",
-    "never",
-    "and",
-    "or",
-    "not",
-    "field",
-    "exact",
-    "glob",
-    "contains",
-    "match_glob",
-    "build",
-    "matches",
-];
+/// The `pred` module definition: source + its discovered record fields.
+fn pred_def() -> handl_plugin_lib_handl::pkg::PackageModuleDef {
+    let dir = pred_package_dir();
+    handl_plugin_lib_handl::pkg::package_modules(&dir)
+        .unwrap_or_else(|e| panic!("load `pred` from {}: {e}", dir.display()))
+        .into_iter()
+        .find(|d| d.name == "pred")
+        .expect("lib-pred declares a `pred` module")
+}
 
 static PRED_MODULE: OnceLock<HandlModule> = OnceLock::new();
 
@@ -1145,7 +1145,9 @@ fn pred_module() -> &'static HandlModule {
     // `OnceLock` and deadlock (bootstrap path is pure text work).
     PRED_MODULE.get_or_init(|| {
         handl_plugin_lib_handl::with_loader_disabled(|| {
-            HandlModule::new("pred", PRED_HNL, PRED_FUNCS).with_dependency_arc(Arc::new(CharModule))
+            let def = pred_def();
+            let funcs: Vec<&str> = def.funcs.iter().map(String::as_str).collect();
+            HandlModule::new("pred", &def.source, &funcs).with_dependency_arc(Arc::new(CharModule))
         })
     })
 }

@@ -14,7 +14,6 @@ categories = ["development-tools", "compilers"]
 publish = false
 
 [dependencies]
-handl-lib-pred = { git = "https://github.com/handl-lang/lib-pred", branch = "main" }
 handl-platform = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-handl = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-language = { git = "https://github.com/handl-lang/kernel", branch = "main" }
