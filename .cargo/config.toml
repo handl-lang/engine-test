@@ -9,3 +9,6 @@
 # instead.)
 [env]
 RUST_MIN_STACK = "67108864"
+
+[alias]
+xtask = "run --manifest-path xtask/Cargo.toml --"

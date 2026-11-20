@@ -1,14 +1,19 @@
 # engine-test
 
-`hnl-engine-test` — Bootstrap test runner (ADR-0089).
+`hnl-engine-test` — the bootstrap test runner.
+
+An `engine-*` crate: test discovery, tag/filter predicates, scheduling, and
+reporting for `.hnl` test suites, driven by language data rather than a
+hardcoded test format.
 
 ## Development
 
 ```bash
-cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+cargo xtask gate        # fmt --check → clippy -D warnings → test → doc
 ```
 
-`ci.sh` is the gate (fmt → clippy → test → doc). Deps resolve from git, so no
+`cargo xtask` wraps the repo's `xtask/` crate (`fmt`, `clippy`, `test`, `doc`,
+`check`, `gate`); `ci.sh` is the gate entry. Deps resolve from git, so no
 sibling checkouts are needed; a plain clone test-runs as-is.
 
 ## License
