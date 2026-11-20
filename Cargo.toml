@@ -24,7 +24,6 @@ hnl-engine-parse-pratt = { git = "https://github.com/handl-lang/engine-parse-pra
 hnl-engine-exec-tree-walk = { git = "https://github.com/handl-lang/engine-exec-tree-walk", branch = "main" }
 handl-plugin-ext-diag = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-scheduler = { git = "https://github.com/handl-lang/host", branch = "main" }
-handl-plugin-lib-char-native = { git = "https://github.com/handl-lang/lib-char-native", branch = "main" }
 handl-plugin-exec-cache = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-ext-refinement = { git = "https://github.com/handl-lang/host", branch = "main" }
 serde = "1"

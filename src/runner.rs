@@ -55,7 +55,7 @@ use handl_platform::{EvalContext, Function, Module, ModuleLookup};
 use handl_plugin_exec_cache::AstKey;
 use handl_plugin_ext_diag::{Span, StatementChunk};
 use handl_plugin_ext_refinement::{Dialect, detect_dialect};
-use handl_plugin_lib_char_native::CharModule;
+use handl_plugin_lib_handl::CharModule;
 use handl_plugin_lib_handl::HandlModule;
 use handl_plugin_lib_scheduler::{BoundedScheduler, JobError, SchedulePolicy};
 use handl_runtime::Runtime;
