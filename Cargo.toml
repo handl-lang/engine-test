@@ -13,6 +13,17 @@ categories = ["development-tools", "compilers"]
 # Git-install only: https://github.com/handl-lang/engine-test (no crates.io).
 publish = false
 
+# Workspace: the root package `hnl-engine-test` plus the absorbed
+# `handl-kit-test` binding crate (moved from the kit-test repo — the Rust
+# crate is test-framework machinery, not a kit; kit-test keeps only its
+# kit.hnl manifest).
+[workspace]
+members = [".", "crates/kit-test"]
+
+[workspace.package]
+license = "MIT"
+repository = "https://github.com/handl-lang/engine-test"
+
 [dependencies]
 handl-platform = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-handl = { git = "https://github.com/handl-lang/host", branch = "main" }

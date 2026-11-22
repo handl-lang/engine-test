@@ -6,6 +6,16 @@ An `engine-*` crate: test discovery, tag/filter predicates, scheduling, and
 reporting for `.hnl` test suites, driven by language data rather than a
 hardcoded test format.
 
+## Crates
+
+- `hnl-engine-test` (root) — the bootstrap test runner.
+- `handl-kit-test` (`crates/kit-test`) — the test-framework kit binding:
+  the pure-Handl `test`/`property`/`benchmark`/`fuzz`/`snapshot`/`assert`
+  modules plus the deterministic `rand-stub` backend, registered as host
+  modules via `handl_kit_core`. Absorbed from the `kit-test` repo (the
+  Rust crate is test-framework machinery, not a kit; `kit-test` keeps only
+  its `kit.hnl` manifest).
+
 ## Development
 
 ```bash
