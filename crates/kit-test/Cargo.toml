@@ -11,7 +11,7 @@ keywords = ["handl", "kit", "testing"]
 categories = ["development-tools"]
 
 [dependencies]
-handl-kit-core = { git = "https://github.com/handl-lang/kit-core", branch = "main" }
+handl-kit-core = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-stdlib = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-tag = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-handl = { git = "https://github.com/handl-lang/host", branch = "main" }

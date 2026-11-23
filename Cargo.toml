@@ -46,4 +46,4 @@ serde_yaml = "0.9"
 # Tests build the canonical TestKitSource from the kit — the same shape a
 # host uses (ADR-0128 §0.8). Dev-only: only normal deps create the
 # platform↔lang cycle.
-handl-kit-prelude = { git = "https://github.com/handl-lang/kit-prelude", branch = "main" }
+handl-kit-prelude = { git = "https://github.com/handl-lang/host", branch = "main" }
