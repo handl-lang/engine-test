@@ -2,7 +2,7 @@
 
 `hnl-tool-test` — the bootstrap test runner.
 
-An `engine-*` crate: test discovery, tag/filter predicates, scheduling, and
+A `tool-*` crate: test discovery, tag/filter predicates, scheduling, and
 reporting for `.hnl` test suites, driven by language data rather than a
 hardcoded test format.
 
