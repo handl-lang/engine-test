@@ -10,3 +10,4 @@ project/
 # xtask artifacts (matches sibling repos)
 /xtask/Cargo.lock
 /xtask/target/
+/.cargo/
