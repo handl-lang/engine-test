@@ -976,3 +976,54 @@ fn test_run_cache_save_and_load_round_trip() {
 
     let _ = std::fs::remove_file(&tmp);
 }
+
+// ---------------------------------------------------------------------------
+// Source coverage (`--coverage`, hnl_engine_exec::coverage)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn run_with_coverage_records_source_hits() {
+    // Opt-in coverage: the session is installed on each scheduler worker,
+    // the test body source is registered, and eval node spans merge into
+    // one report. Line numbers are prepared-source coordinates.
+    let plan = discover(&src(), &[fixture("mixed.handl")]).unwrap();
+    let session = hnl_engine_test::coverage::CoverageSession::new();
+    let mut config = RunConfig::new().with_coverage(session.clone());
+    let report = run_with_config(&src(), &plan, &mut config);
+    assert_eq!(report.total(), 3);
+
+    let cov = session.report();
+    // One registered source per distinct test body (dedup is by
+    // name+text); `mixed.handl` has three bodies.
+    assert_eq!(cov.sources.len(), 3, "{cov:?}");
+    let hits: u64 = cov.sources.iter().map(|s| s.lines_covered()).sum();
+    assert!(hits > 0, "expected line hits: {cov:?}");
+    assert!(
+        cov.sources
+            .iter()
+            .all(|s| s.coordinate_space == "prepared" && s.line_hits.iter().all(|(_, n)| *n > 0)),
+        "{cov:?}"
+    );
+}
+
+#[test]
+fn coverage_report_serializes_with_coordinate_label() {
+    let plan = discover(&src(), &[fixture("mixed.handl")]).unwrap();
+    let session = hnl_engine_test::coverage::CoverageSession::new();
+    let mut config = RunConfig::new().with_coverage(session.clone());
+    run_with_config(&src(), &plan, &mut config);
+
+    let json = session.report().to_json();
+    assert!(
+        json["coordinateSpace"]
+            .as_str()
+            .unwrap()
+            .contains("prepared-source"),
+        "{json}"
+    );
+    assert_eq!(json["totals"]["sources"].as_u64().unwrap(), 3);
+    assert!(
+        json["totals"]["linesCovered"].as_u64().unwrap() > 0,
+        "{json}"
+    );
+}

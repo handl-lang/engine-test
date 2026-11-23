@@ -268,3 +268,67 @@ impl Reporter for JsonReporter {
         .to_string()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Coverage reporting (`--coverage`)
+// ---------------------------------------------------------------------------
+
+/// Human-readable coverage reporter — the sibling of [`Reporter`] for
+/// [`hnl_engine_exec::coverage::CoverageReport`] (which is produced by the
+/// eval instrumentation, not by a [`RunReport`]).
+///
+/// Renders per-source line and declaration coverage. **Line numbers are
+/// prepared-source coordinates** — `.hnl` modules are re-serialized by
+/// module prep before parsing, so they do not map faithfully to file
+/// lines (see `hnl_engine_exec::coverage` module docs). `origin` shows
+/// the on-disk path for reference.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CoverageReporter;
+
+impl CoverageReporter {
+    /// Render `report` as human-readable text.
+    pub fn format(&self, report: &hnl_engine_exec::coverage::CoverageReport) -> String {
+        let mut out = String::new();
+        out.push_str(
+            "coverage (prepared-source coordinates — line numbers index the\n\
+             post-module-prep text, not the file on disk):\n",
+        );
+        if report.sources.is_empty() {
+            out.push_str("  (no sources recorded)\n");
+            return out;
+        }
+        for src in &report.sources {
+            let pct = if src.total_lines > 0 {
+                src.lines_covered() as f64 * 100.0 / src.total_lines as f64
+            } else {
+                0.0
+            };
+            out.push_str(&format!(
+                "\n== {} ==\n  lines: {} / {} ({:.1}%)\n",
+                src.name,
+                src.lines_covered(),
+                src.total_lines,
+                pct
+            ));
+            if let Some(origin) = &src.origin {
+                out.push_str(&format!("  origin: {origin}\n"));
+            }
+            let decls_covered = src.decls.iter().filter(|d| d.covered()).count();
+            out.push_str(&format!(
+                "  declarations: {} / {} covered ({} arrow applications)\n",
+                decls_covered,
+                src.decls.len(),
+                src.applications
+            ));
+            for d in &src.decls {
+                let mark = if d.covered() { "x" } else { " " };
+                let kind = if d.is_arrow { "arrow" } else { "decl" };
+                out.push_str(&format!(
+                    "    [{}] {:<4} {} (any_hits={}, body_hits={})\n",
+                    mark, kind, d.name, d.any_hits, d.body_hits
+                ));
+            }
+        }
+        out
+    }
+}

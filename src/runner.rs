@@ -1414,7 +1414,23 @@ fn eval_test_body(
             }
         }
         let rt = &borrow.as_ref().expect("runtime initialized above").1;
-        match rt.run(&Source::new(body_source)) {
+        // Coverage instruments the tree-walk engine only. `Runtime::run`'s
+        // `Runtime::eval` fast path lowers pure terms to the arrow
+        // interpreter (`interpret_with_handlers`), which never touches
+        // `eval_node_inner_unguarded` — bodies it handles would record
+        // zero hits. When a coverage session is installed on this worker,
+        // route through `eval_with_globals` (engine eval directly) so the
+        // report covers every test body. Opt-in runs only; the default
+        // path is unchanged.
+        let run_result = if hnl_engine_exec::coverage::CoverageSession::is_active_local() {
+            let src = Source::new(body_source);
+            rt.lex(&src)
+                .and_then(|toks| rt.parse(&toks))
+                .and_then(|ast| rt.eval_with_globals(&ast, &HashMap::new()))
+        } else {
+            rt.run(&Source::new(body_source))
+        };
+        match run_result {
             Ok(value) => {
                 if is_err_result(&value) {
                     let failure = crate::framework::take_last_assert_failure()
@@ -1487,7 +1503,7 @@ pub fn run_selected(
     predicate: &Filter,
     policy: &SchedulePolicy,
 ) -> RunReport {
-    run_selected_impl(source, plan, predicate, policy, None, None)
+    run_selected_impl(source, plan, predicate, policy, None, None, None)
 }
 
 /// Shared implementation for [`run_selected`], [`run_selected_cached`],
@@ -1505,6 +1521,7 @@ pub(crate) fn run_selected_impl(
     predicate: &Filter,
     policy: &SchedulePolicy,
     mut cache: Option<&mut TestRunCache>,
+    coverage: Option<&hnl_engine_exec::coverage::CoverageSession>,
     mut events: Option<&mut Vec<TestEvent>>,
 ) -> RunReport {
     let run_start = Instant::now();
@@ -1552,7 +1569,29 @@ pub(crate) fn run_selected_impl(
         // can ride into the job and produce the worker's base runtime
         // on-thread.
         let job_source = Arc::clone(source);
-        jobs.push((i, Box::new(move || eval_test_body(&job_source, &body))));
+        // Coverage (opt-in): install the shared session on this worker
+        // and register the test source — the exact `body` text `rt.run`
+        // parses (do-wrapped when a preamble is present). Spans index
+        // that text; line numbers are its coordinates.
+        let job_coverage = coverage.cloned();
+        let job_module = case.module.display().to_string();
+        jobs.push((
+            i,
+            Box::new(move || {
+                let _cov = job_coverage.as_ref().map(|session| {
+                    session.install_local();
+                    hnl_engine_exec::coverage::CoverageSession::register(
+                        hnl_engine_exec::coverage::CoverageSource::new(
+                            job_module.clone(),
+                            body.clone(),
+                        )
+                        .with_origin(job_module.clone()),
+                    )
+                    .and_then(hnl_engine_exec::coverage::CoverageSession::push_source)
+                });
+                eval_test_body(&job_source, &body)
+            }),
+        ));
     }
 
     // Plan tests are already sorted by module. Capture each module's range
@@ -1895,7 +1934,7 @@ pub fn run_selected_cached(
     policy: &SchedulePolicy,
     cache: &mut TestRunCache,
 ) -> RunReport {
-    run_selected_impl(source, plan, predicate, policy, Some(cache), None)
+    run_selected_impl(source, plan, predicate, policy, Some(cache), None, None)
 }
 
 // ---------------------------------------------------------------------------

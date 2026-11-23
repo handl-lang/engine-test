@@ -329,6 +329,7 @@ fn run_round(source: &TestKitSource, plan: &TestPlan, options: &WatchRunOptions)
         predicate: options.predicate.clone(),
         policy: options.policy,
         cache: None,
+        coverage: None,
         events: Vec::new(),
     };
     run_with_config(source, plan, &mut config)

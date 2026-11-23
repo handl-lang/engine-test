@@ -38,6 +38,11 @@ pub struct RunConfig {
     /// Opt-in result cache (`--cache`). When `Some`, selected tests hit or
     /// populate it; when `None`, nothing is cached.
     pub cache: Option<TestRunCache>,
+    /// Opt-in `.hnl` source coverage (`--coverage`). When `Some`, the
+    /// session is installed on each scheduler worker and collects
+    /// line/decl hits; read the merged [`hnl_engine_exec::coverage::CoverageReport`]
+    /// via `config.coverage.as_ref().map(|s| s.report())` after the run.
+    pub coverage: Option<hnl_engine_exec::coverage::CoverageSession>,
     /// Structured events emitted during the run (output sink).
     pub events: Vec<TestEvent>,
 }
@@ -78,6 +83,12 @@ impl RunConfig {
         self.cache = Some(cache);
         self
     }
+
+    /// Enable `.hnl` source coverage with the given session (`--coverage`).
+    pub fn with_coverage(mut self, session: hnl_engine_exec::coverage::CoverageSession) -> Self {
+        self.coverage = Some(session);
+        self
+    }
 }
 
 /// Run a test plan under a [`RunConfig`].
@@ -101,6 +112,7 @@ pub fn run_with_config(
         &config.predicate,
         &config.policy,
         config.cache.as_mut(),
+        config.coverage.as_ref(),
         Some(&mut config.events),
     )
 }
