@@ -97,6 +97,26 @@ impl AssertHandler for TestAssertHandler {
     }
 }
 
+/// File-line provenance for a test case's eval source: lets coverage
+/// resolve the synthesized `do { preamble; body }` text's line numbers
+/// back to lines of the module file on disk.
+///
+/// `preamble_map[i]` is the 1-based file line that produced preamble
+/// line `i + 1` (`None` for generated lines — e.g. `local := "spec.name"`
+/// lowerings attribute to their import declaration's line). `body_line`
+/// is the file line of `body_source`'s first line; body lines are
+/// contiguous in the file. `origin_lines` is the module file's total
+/// line count.
+#[derive(Debug, Clone)]
+pub struct FileLineProvenance {
+    /// Per-line origin map for [`TestCase::preamble`].
+    pub preamble_map: Vec<Option<u32>>,
+    /// File line of `body_source`'s first line.
+    pub body_line: u32,
+    /// Total lines in the module file.
+    pub origin_lines: u32,
+}
+
 /// A discovered test case.
 #[derive(Debug, Clone)]
 pub struct TestCase {
@@ -113,10 +133,46 @@ pub struct TestCase {
     /// imports (e.g. `from "str" import ...`) are not kept — the kit's
     /// module chain already supplies those bindings (ADR-0096).
     pub preamble: String,
+    /// File-line provenance for coverage, when the case was discovered
+    /// from a real module file (`None` for synthetic cases).
+    pub file_lines: Option<FileLineProvenance>,
     /// Source span of the test declaration.
     pub span: Span,
     /// Tags extracted from leading `-- tags: ...` doc-comment lines.
     pub tags: Vec<String>,
+}
+
+impl TestCase {
+    /// The coverage source for this case's eval `body` — the exact text
+    /// `rt.run` parses. When [`Self::file_lines`] is present the source
+    /// carries a prepared-line → file-line map so reports resolve hits
+    /// to module-file lines; otherwise it stays plain prepared
+    /// coordinates.
+    fn coverage_source(
+        &self,
+        body: &str,
+    ) -> hnl_engine_exec::coverage::CoverageSource {
+        let name = self.module.display().to_string();
+        let mut src = hnl_engine_exec::coverage::CoverageSource::new(name.clone(), body)
+            .with_origin(name);
+        if let Some(fl) = &self.file_lines {
+            let mut map = hnl_engine_exec::coverage::OriginLineMap::new();
+            if self.preamble.is_empty() {
+                // `body` is `body_source` verbatim — contiguous file lines.
+                map.push(&self.body_source, Some(fl.body_line));
+            } else {
+                // `body` is `do {\n{preamble}\n{body_source}\n}` —
+                // mirror the assembly in `run_selected_impl` exactly.
+                map.push("do {\n", None);
+                map.push_lines(&self.preamble, &fl.preamble_map);
+                map.push("\n", None);
+                map.push(&self.body_source, Some(fl.body_line));
+                map.push("\n}", None);
+            }
+            src = src.with_file_lines(map.into_vec(), Some(fl.origin_lines));
+        }
+        src
+    }
 }
 
 /// A test plan: all discovered tests, grouped by module.
@@ -313,7 +369,14 @@ fn is_import_decl(trimmed: &str) -> bool {
 /// are declarations the kit's module chain already satisfies; they lower to
 /// `local := "spec.name"` bindings, matching `hnl run`/`ModuleLoader`
 /// behavior (ADR-0096 §"Module-name imports").
-fn import_preamble(src: &str, module: &Path) -> String {
+///
+/// Returns the preamble text plus an [`OriginLineMap`][`hnl_engine_exec::coverage::OriginLineMap`]:
+/// each preamble line records the module-file line its statement came
+/// from (generated lowerings attribute to their declaration's line).
+fn import_preamble(
+    src: &str,
+    module: &Path,
+) -> (String, hnl_engine_exec::coverage::OriginLineMap) {
     let base = module.parent().map(Path::to_path_buf);
     let cwd = std::env::current_dir().ok();
     // `.handl.toml` `[dependencies]` for the project this module belongs to
@@ -325,11 +388,17 @@ fn import_preamble(src: &str, module: &Path) -> String {
         .map(|dir| handl_platform::config::discover_dependencies(dir).unwrap_or_default())
         .unwrap_or_default();
     let mut preamble = String::new();
+    let mut map = hnl_engine_exec::coverage::OriginLineMap::new();
     for chunk in handl_plugin_ext_diag::split_statements(src) {
         let trimmed = chunk.text.trim_start();
         if !is_import_decl(trimmed) {
             continue;
         }
+        // File line the declaration starts on — provenance for both the
+        // kept (path-rewritten) statement and the lowered bindings.
+        let decl_line = Some(handl_runtime::module_prep::line_number_at(
+            src, chunk.offset,
+        ));
         // `import <name> ...` is a module-name declaration (never
         // executable); bind `name := "name"` so the bare name dispatches
         // through the module chain. Only the quoted `import "<spec>"`
@@ -340,7 +409,9 @@ fn import_preamble(src: &str, module: &Path) -> String {
             let inner = rest.trim_start();
             if !inner.starts_with('"') && !inner.starts_with('\'') {
                 for (local, expr, _) in handl_runtime::module_prep::host_import_bindings(trimmed) {
-                    preamble.push_str(&format!("{local} := {expr};\n"));
+                    let line = format!("{local} := {expr};\n");
+                    map.push(&line, decl_line);
+                    preamble.push_str(&line);
                 }
                 continue;
             }
@@ -372,7 +443,9 @@ fn import_preamble(src: &str, module: &Path) -> String {
             // Inside the `do {}` eval block, `import <names>` trailing-
             // tokens parsing does not stop at the newline — terminate
             // each preamble statement with `;`.
+            map.push(&rewritten, decl_line);
             preamble.push_str(&rewritten);
+            map.push(";\n", None);
             preamble.push_str(";\n");
         } else {
             // Module-name import — the kit's module chain supplies the
@@ -381,11 +454,13 @@ fn import_preamble(src: &str, module: &Path) -> String {
             // dispatch through `call_host` exactly like the ambient
             // dotted form `spec.name(...)`.
             for (local, expr, _) in handl_runtime::module_prep::host_import_bindings(trimmed) {
-                preamble.push_str(&format!("{local} := {expr};\n"));
+                let line = format!("{local} := {expr};\n");
+                map.push(&line, decl_line);
+                preamble.push_str(&line);
             }
         }
     }
-    preamble
+    (preamble, map)
 }
 
 /// Extract the first `'`- or `"`-quoted string literal's contents from a
@@ -705,8 +780,9 @@ fn discover_tests_in_module(
     module: &Path,
 ) -> Result<Vec<TestCase>, String> {
     let chunks = split_statements(src);
-    let mut preamble = import_preamble(src, module);
+    let (mut preamble, mut preamble_map) = import_preamble(src, module);
     let mut tests = Vec::new();
+    let origin_lines = src.lines().count() as u32;
 
     // Classification pass: chunks that are not test declarations are
     // top-level helper bindings (`pair := ...`) — splice them into the
@@ -734,10 +810,20 @@ fn discover_tests_in_module(
             }
         }
         if !is_test {
+            // Verbatim helper statement — its lines map to the file
+            // lines the chunk occupies; the `;` separator is generated.
+            let chunk_line = Some(handl_runtime::module_prep::line_number_at(
+                src, chunk.offset,
+            ));
+            preamble_map.push(&chunk.text, chunk_line);
             preamble.push_str(&chunk.text);
+            preamble_map.push(";\n", None);
             preamble.push_str(";\n");
         }
     }
+    // Finalize the preamble's provenance map — shared by every test in
+    // this module (the preamble is identical for all of them).
+    let preamble_map = preamble_map.into_vec();
 
     for chunk in &chunks {
         let ast = parse_chunk(lang, &chunk.text)?;
@@ -761,7 +847,11 @@ fn discover_tests_in_module(
             {
                 // The body expression is the text after the `=`
                 // separator in the declaration chunk.
-                let body_source = extract_body_source(&chunk.text);
+                let (body_source, body_off) = extract_body_source_at(&chunk.text);
+                let body_line = handl_runtime::module_prep::line_number_at(
+                    src,
+                    chunk.offset + body_off,
+                );
                 let span =
                     Span::from_byte_range(chunk.offset, chunk.offset + chunk.text.len(), src);
                 let tags = extract_doc_tags(src, chunk.offset);
@@ -770,6 +860,11 @@ fn discover_tests_in_module(
                     name,
                     body_source,
                     preamble: preamble.clone(),
+                    file_lines: Some(FileLineProvenance {
+                        preamble_map: preamble_map.clone(),
+                        body_line,
+                        origin_lines,
+                    }),
                     span,
                     tags,
                 });
@@ -797,7 +892,11 @@ fn discover_tests_in_module(
                 if name.starts_with("test_") || is_test_kind {
                     // Extract the body source: the text after `=`
                     // in the chunk, or the whole chunk if no `=`.
-                    let body_source = extract_body_source(&chunk.text);
+                    let (body_source, body_off) = extract_body_source_at(&chunk.text);
+                    let body_line = handl_runtime::module_prep::line_number_at(
+                        src,
+                        chunk.offset + body_off,
+                    );
                     let span =
                         Span::from_byte_range(chunk.offset, chunk.offset + chunk.text.len(), src);
                     let tags = extract_doc_tags(src, chunk.offset);
@@ -806,6 +905,11 @@ fn discover_tests_in_module(
                         name,
                         body_source,
                         preamble: preamble.clone(),
+                        file_lines: Some(FileLineProvenance {
+                            preamble_map: preamble_map.clone(),
+                            body_line,
+                            origin_lines,
+                        }),
                         span,
                         tags,
                     });
@@ -824,7 +928,14 @@ fn discover_tests_in_module(
 /// bare `=` (test-decl separator), whichever comes first — scanned outside
 /// string literals and `--` comments (trimmed). If no separator is found,
 /// returns the whole text.
+#[cfg(test)]
 fn extract_body_source(text: &str) -> String {
+    extract_body_source_at(text).0
+}
+
+/// [`extract_body_source`] plus the byte offset of the returned body's
+/// first byte within `text` — provenance for file-line coverage.
+fn extract_body_source_at(text: &str) -> (String, usize) {
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -859,7 +970,7 @@ fn extract_body_source(text: &str) -> String {
 
         // `::` binding separator (ADR-0079).
         if b == b':' && i + 1 < bytes.len() && bytes[i + 1] == b':' {
-            return text[i + 2..].trim().to_string();
+            return trimmed_tail(text, i + 2);
         }
 
         if b == b'=' {
@@ -871,11 +982,18 @@ fn extract_body_source(text: &str) -> String {
                 continue;
             }
             // Found the `=` separator.
-            return text[i + 1..].trim().to_string();
+            return trimmed_tail(text, i + 1);
         }
         i += 1;
     }
-    text.to_string()
+    (text.to_string(), 0)
+}
+
+/// `text[from..]` trimmed, plus the offset of its first byte.
+fn trimmed_tail(text: &str, from: usize) -> (String, usize) {
+    let rest = &text[from..];
+    let lead = rest.len() - rest.trim_start().len();
+    (rest.trim().to_string(), from + lead)
 }
 
 /// Recursively collect all `.handl` and `.hnl` files from a directory.
@@ -1572,22 +1690,17 @@ pub(crate) fn run_selected_impl(
         // Coverage (opt-in): install the shared session on this worker
         // and register the test source — the exact `body` text `rt.run`
         // parses (do-wrapped when a preamble is present). Spans index
-        // that text; line numbers are its coordinates.
+        // that text; `case.coverage_source` attaches the file-line
+        // provenance map when the case came from a real module file.
         let job_coverage = coverage.cloned();
-        let job_module = case.module.display().to_string();
+        let cov_source = case.coverage_source(&body);
         jobs.push((
             i,
             Box::new(move || {
                 let _cov = job_coverage.as_ref().map(|session| {
                     session.install_local();
-                    hnl_engine_exec::coverage::CoverageSession::register(
-                        hnl_engine_exec::coverage::CoverageSource::new(
-                            job_module.clone(),
-                            body.clone(),
-                        )
-                        .with_origin(job_module.clone()),
-                    )
-                    .and_then(hnl_engine_exec::coverage::CoverageSession::push_source)
+                    hnl_engine_exec::coverage::CoverageSession::register(cov_source.clone())
+                        .and_then(hnl_engine_exec::coverage::CoverageSession::push_source)
                 });
                 eval_test_body(&job_source, &body)
             }),
@@ -2083,6 +2196,7 @@ mod tests {
                         name: "test_a".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2096,6 +2210,7 @@ mod tests {
                         name: "test_b".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2111,6 +2226,7 @@ mod tests {
                         name: "test_c".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2244,6 +2360,7 @@ mod tests {
                         name: "test_a".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2257,6 +2374,7 @@ mod tests {
                         name: "test_b".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2272,6 +2390,7 @@ mod tests {
                         name: "test_c".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2298,6 +2417,7 @@ mod tests {
                         name: "test_a".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2311,6 +2431,7 @@ mod tests {
                         name: "test_b".to_string(),
                         body_source: "1".to_string(),
                         preamble: String::new(),
+                        file_lines: None,
                         span: Span::default(),
                         tags: Vec::new(),
                     },
@@ -2369,6 +2490,7 @@ test tagged_fast = 1 + 1
             name: "t".to_string(),
             body_source: "1".to_string(),
             preamble: String::new(),
+            file_lines: None,
             span: Span::default(),
             tags: tags.iter().map(|s| s.to_string()).collect(),
         }

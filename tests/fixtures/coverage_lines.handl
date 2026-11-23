@@ -1,0 +1,8 @@
+-- coverage fixture: comments and blank lines must not shift
+-- the file-line provenance map.
+
+helper_base := 20
+
+-- another comment line
+test_sum :: helper_base + 22
+test_const :: 40 + 2

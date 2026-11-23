@@ -1027,3 +1027,60 @@ fn coverage_report_serializes_with_coordinate_label() {
         "{json}"
     );
 }
+
+#[test]
+fn coverage_resolves_file_lines_through_prep() {
+    // `coverage_lines.handl` interleaves `--` comments and blank lines
+    // with the statements, so prepared coordinates cannot be derived by
+    // naive offset math — the provenance map must do the resolution.
+    // File lines: 4 `helper_base := 20`, 7 `test_sum` body, 8 `test_const`.
+    let plan = discover(&src(), &[fixture("coverage_lines.handl")]).unwrap();
+    let session = hnl_engine_test::coverage::CoverageSession::new();
+    let mut config = RunConfig::new().with_coverage(session.clone());
+    run_with_config(&src(), &plan, &mut config);
+
+    let cov = session.report();
+    assert_eq!(cov.sources.len(), 2, "{cov:?}");
+    // Every discovered source carries provenance + resolved hits.
+    for s in &cov.sources {
+        assert!(s.line_map.is_some(), "{s:?}");
+        assert!(s.file_line_hits.is_some(), "{s:?}");
+        assert_eq!(s.origin_lines, Some(8), "{s:?}");
+    }
+    // Union of resolved file-line hits is exactly the coverable file
+    // lines: the helper binding (4) and both test bodies (7, 8) — never
+    // a comment or blank line.
+    let mut all: std::collections::BTreeSet<u32> = Default::default();
+    for s in &cov.sources {
+        for (l, _) in s.file_line_hits.as_ref().unwrap() {
+            all.insert(*l);
+        }
+    }
+    assert!(all.contains(&4), "helper line missing: {all:?}");
+    assert!(all.contains(&7), "test_sum body line missing: {all:?}");
+    assert!(all.contains(&8), "test_const body line missing: {all:?}");
+    assert!(
+        all.iter().all(|l| [4, 7, 8].contains(l)),
+        "hit on a comment/blank/generated file line: {all:?}"
+    );
+    // Declaration provenance: the `helper_base` decl reports file line 4.
+    let decl_file_lines: Vec<Option<u32>> = cov
+        .sources
+        .iter()
+        .flat_map(|s| s.decls.iter().map(|d| d.file_line))
+        .collect();
+    assert!(
+        decl_file_lines.contains(&Some(4)),
+        "{decl_file_lines:?}"
+    );
+    // JSON exposes the same resolution.
+    let json = cov.to_json();
+    let file_hits: Vec<u64> = json["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["fileLineHits"].as_object())
+        .flat_map(|m| m.keys().filter_map(|k| k.parse::<u64>().ok()))
+        .collect();
+    assert!(file_hits.contains(&7) && file_hits.contains(&8), "{json}");
+}

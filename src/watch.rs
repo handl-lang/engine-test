@@ -395,6 +395,7 @@ mod tests {
             name: "test_x".into(),
             body_source: "1".into(),
             preamble: preamble.into(),
+            file_lines: None,
             span: Span::default(),
             tags: Vec::new(),
         }
