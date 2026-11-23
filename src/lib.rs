@@ -1,4 +1,4 @@
-//! # hnl-engine-test
+//! # hnl-tool-test
 //!
 //! Bootstrap test runner (ADR-0089).
 //!
@@ -38,8 +38,8 @@ pub mod watch;
 pub use config::*;
 pub use events::*;
 /// Re-exported so capability adapters (`plugin-ext-test`) can name the
-/// coverage session/report types without a direct `hnl-engine-exec` dep.
-pub use hnl_engine_exec::coverage;
+/// coverage session/report types without a direct `hnl-exec` dep.
+pub use hnl_exec::coverage;
 pub use provider::*;
 pub use report::*;
 pub use runner::*;

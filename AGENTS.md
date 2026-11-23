@@ -12,9 +12,9 @@
 
 <!-- /myco:agent-awareness -->
 
-# Agent guide — engine-test
+# Agent guide — tool-test
 
-The test-framework side of the engine family: `hnl-engine-test` (root
+The test-framework side of the engine family: `hnl-tool-test` (root
 package — the ADR-0089 bootstrap test runner: discovery, tag/filter
 predicates, scheduling, reporting for `.hnl` suites) plus
 `handl-kit-test` (`crates/kit-test` — the test-framework kit binding:
@@ -28,5 +28,5 @@ rename is a separate follow-up).
 
 `src/watch.rs` is the `--watch` mode (`hnl test --watch`, wired in the
 `ext-test` repo): `run_watch`/`run_watch_loop` re-discover and re-run
-affected cases per debounced `hnl-engine-watch` event batch — see the
+affected cases per debounced `hnl-tool-watch` event batch — see the
 module docs for the rerun-granularity contract.

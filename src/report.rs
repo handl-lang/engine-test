@@ -274,13 +274,13 @@ impl Reporter for JsonReporter {
 // ---------------------------------------------------------------------------
 
 /// Human-readable coverage reporter — the sibling of [`Reporter`] for
-/// [`hnl_engine_exec::coverage::CoverageReport`] (which is produced by the
+/// [`hnl_exec::coverage::CoverageReport`] (which is produced by the
 /// eval instrumentation, not by a [`RunReport`]).
 ///
 /// Renders per-source line and declaration coverage. **Line numbers are
 /// prepared-source coordinates** — `.hnl` modules are re-serialized by
 /// module prep before parsing, so they do not map faithfully to file
-/// lines (see `hnl_engine_exec::coverage` module docs). When the producer
+/// lines (see `hnl_exec::coverage` module docs). When the producer
 /// attached a provenance map, a resolved *file-line* summary is shown as
 /// well; `origin` shows the on-disk path for reference.
 #[derive(Debug, Default, Clone, Copy)]
@@ -288,7 +288,7 @@ pub struct CoverageReporter;
 
 impl CoverageReporter {
     /// Render `report` as human-readable text.
-    pub fn format(&self, report: &hnl_engine_exec::coverage::CoverageReport) -> String {
+    pub fn format(&self, report: &hnl_exec::coverage::CoverageReport) -> String {
         let mut out = String::new();
         out.push_str(
             "coverage (line numbers are prepared-source coordinates;\n\

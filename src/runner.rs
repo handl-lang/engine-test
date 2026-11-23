@@ -59,10 +59,10 @@ use handl_plugin_lib_handl::CharModule;
 use handl_plugin_lib_handl::HandlModule;
 use handl_plugin_lib_scheduler::{BoundedScheduler, JobError, SchedulePolicy};
 use handl_runtime::Runtime;
-use hnl_engine_exec_tree_walk::{AssertFailure, AssertHandler, TreeWalkEngine};
-use hnl_engine_lex_pattern::DataLexerEngine;
-use hnl_engine_parse::ParserEngine;
-use hnl_engine_parse_pratt::PrattEngine;
+use hnl_exec_tree_walk::{AssertFailure, AssertHandler, TreeWalkEngine};
+use hnl_tool_lex_pattern::DataLexerEngine;
+use hnl_tool_parse::ParserEngine;
+use hnl_tool_parse_pratt::PrattEngine;
 
 use crate::events::TestEvent;
 
@@ -151,12 +151,12 @@ impl TestCase {
     fn coverage_source(
         &self,
         body: &str,
-    ) -> hnl_engine_exec::coverage::CoverageSource {
+    ) -> hnl_exec::coverage::CoverageSource {
         let name = self.module.display().to_string();
-        let mut src = hnl_engine_exec::coverage::CoverageSource::new(name.clone(), body)
+        let mut src = hnl_exec::coverage::CoverageSource::new(name.clone(), body)
             .with_origin(name);
         if let Some(fl) = &self.file_lines {
-            let mut map = hnl_engine_exec::coverage::OriginLineMap::new();
+            let mut map = hnl_exec::coverage::OriginLineMap::new();
             if self.preamble.is_empty() {
                 // `body` is `body_source` verbatim — contiguous file lines.
                 map.push(&self.body_source, Some(fl.body_line));
@@ -370,13 +370,13 @@ fn is_import_decl(trimmed: &str) -> bool {
 /// `local := "spec.name"` bindings, matching `hnl run`/`ModuleLoader`
 /// behavior (ADR-0096 §"Module-name imports").
 ///
-/// Returns the preamble text plus an [`OriginLineMap`][`hnl_engine_exec::coverage::OriginLineMap`]:
+/// Returns the preamble text plus an [`OriginLineMap`][`hnl_exec::coverage::OriginLineMap`]:
 /// each preamble line records the module-file line its statement came
 /// from (generated lowerings attribute to their declaration's line).
 fn import_preamble(
     src: &str,
     module: &Path,
-) -> (String, hnl_engine_exec::coverage::OriginLineMap) {
+) -> (String, hnl_exec::coverage::OriginLineMap) {
     let base = module.parent().map(Path::to_path_buf);
     let cwd = std::env::current_dir().ok();
     // `.handl.toml` `[dependencies]` for the project this module belongs to
@@ -388,7 +388,7 @@ fn import_preamble(
         .map(|dir| handl_platform::config::discover_dependencies(dir).unwrap_or_default())
         .unwrap_or_default();
     let mut preamble = String::new();
-    let mut map = hnl_engine_exec::coverage::OriginLineMap::new();
+    let mut map = hnl_exec::coverage::OriginLineMap::new();
     for chunk in handl_plugin_ext_diag::split_statements(src) {
         let trimmed = chunk.text.trim_start();
         if !is_import_decl(trimmed) {
@@ -759,11 +759,11 @@ fn test_decl_roles(lang: &Language, kind: &str) -> Option<(usize, usize)> {
 
 /// Parse a single statement chunk into an [`Ast`].
 fn parse_chunk(lang: &Language, text: &str) -> Result<Ast, String> {
-    let tokens = hnl_engine_lex_pattern::lex(lang, text).map_err(|e| e.to_string())?;
+    let tokens = hnl_tool_lex_pattern::lex(lang, text).map_err(|e| e.to_string())?;
     if tokens.as_slice().is_empty() {
         return Ok(Ast::new());
     }
-    let req = hnl_engine_parse::ParserRequest::new(tokens);
+    let req = hnl_tool_parse::ParserRequest::new(tokens);
     PrattEngine::new()
         .parse(lang, &req)
         .map_err(|e| e.to_string())
@@ -1540,7 +1540,7 @@ fn eval_test_body(
         // route through `eval_with_globals` (engine eval directly) so the
         // report covers every test body. Opt-in runs only; the default
         // path is unchanged.
-        let run_result = if hnl_engine_exec::coverage::CoverageSession::is_active_local() {
+        let run_result = if hnl_exec::coverage::CoverageSession::is_active_local() {
             let src = Source::new(body_source);
             rt.lex(&src)
                 .and_then(|toks| rt.parse(&toks))
@@ -1639,7 +1639,7 @@ pub(crate) fn run_selected_impl(
     predicate: &Filter,
     policy: &SchedulePolicy,
     mut cache: Option<&mut TestRunCache>,
-    coverage: Option<&hnl_engine_exec::coverage::CoverageSession>,
+    coverage: Option<&hnl_exec::coverage::CoverageSession>,
     mut events: Option<&mut Vec<TestEvent>>,
 ) -> RunReport {
     let run_start = Instant::now();
@@ -1699,8 +1699,8 @@ pub(crate) fn run_selected_impl(
             Box::new(move || {
                 let _cov = job_coverage.as_ref().map(|session| {
                     session.install_local();
-                    hnl_engine_exec::coverage::CoverageSession::register(cov_source.clone())
-                        .and_then(hnl_engine_exec::coverage::CoverageSession::push_source)
+                    hnl_exec::coverage::CoverageSession::register(cov_source.clone())
+                        .and_then(hnl_exec::coverage::CoverageSession::push_source)
                 });
                 eval_test_body(&job_source, &body)
             }),

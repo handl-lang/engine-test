@@ -1,19 +1,19 @@
 [package]
-name = "hnl-engine-test"
+name = "hnl-tool-test"
 version = "0.1.0"
 edition = "2024"
 description = "Bootstrap test runner (ADR-0089)."
 license = "MIT"
-repository = "https://github.com/handl-lang/engine-test"
-homepage = "https://handl-lang.github.io/docs/engine-test/"
-documentation = "https://handl-lang.github.io/docs/engine-test/reference/"
+repository = "https://github.com/handl-lang/tool-test"
+homepage = "https://handl-lang.github.io/docs/tool-test/"
+documentation = "https://handl-lang.github.io/docs/tool-test/reference/"
 readme = "README.md"
 keywords = ["handl", "engine", "test-runner"]
 categories = ["development-tools", "compilers"]
-# Git-install only: https://github.com/handl-lang/engine-test (no crates.io).
+# Git-install only: https://github.com/handl-lang/tool-test (no crates.io).
 publish = false
 
-# Workspace: the root package `hnl-engine-test` plus the absorbed
+# Workspace: the root package `hnl-tool-test` plus the absorbed
 # `handl-kit-test` binding crate (moved from the kit-test repo — the Rust
 # crate is test-framework machinery, not a kit; kit-test keeps only its
 # kit.hnl manifest).
@@ -22,19 +22,19 @@ members = [".", "crates/kit-test"]
 
 [workspace.package]
 license = "MIT"
-repository = "https://github.com/handl-lang/engine-test"
+repository = "https://github.com/handl-lang/tool-test"
 
 [dependencies]
 handl-platform = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-handl = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-language = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 handl-runtime = { git = "https://github.com/handl-lang/host", branch = "main" }
-hnl-engine-lex-pattern = { git = "https://github.com/handl-lang/engine-lex-pattern", branch = "main" }
-hnl-engine-parse = { git = "https://github.com/handl-lang/engine-parse", branch = "main" }
-hnl-engine-parse-pratt = { git = "https://github.com/handl-lang/engine-parse-pratt", branch = "main" }
-hnl-engine-exec = { git = "https://github.com/handl-lang/engine-exec", branch = "main" }
-hnl-engine-exec-tree-walk = { git = "https://github.com/handl-lang/engine-exec-tree-walk", branch = "main" }
-hnl-engine-watch = { git = "https://github.com/handl-lang/engine-watch", branch = "main" }
+hnl-tool-lex-pattern = { git = "https://github.com/handl-lang/tool-lex-pattern", branch = "main" }
+hnl-tool-parse = { git = "https://github.com/handl-lang/tool-parse", branch = "main" }
+hnl-tool-parse-pratt = { git = "https://github.com/handl-lang/tool-parse-pratt", branch = "main" }
+hnl-exec = { git = "https://github.com/handl-lang/exec", branch = "main" }
+hnl-exec-tree-walk = { git = "https://github.com/handl-lang/exec-tree-walk", branch = "main" }
+hnl-tool-watch = { git = "https://github.com/handl-lang/tool-watch", branch = "main" }
 handl-plugin-ext-diag = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-scheduler = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-exec-cache = { git = "https://github.com/handl-lang/host", branch = "main" }

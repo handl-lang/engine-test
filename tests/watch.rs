@@ -1,14 +1,14 @@
-//! Integration tests for `--watch` mode (`hnl_engine_watch`-backed reruns).
+//! Integration tests for `--watch` mode (`hnl_tool_watch`-backed reruns).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use hnl_engine_test::runner::{TestKitSource, base_runtime};
-use hnl_engine_test::watch::{
+use hnl_tool_test::runner::{TestKitSource, base_runtime};
+use hnl_tool_test::watch::{
     WatchRunOptions, default_watch_roots, is_source_path, run_watch_loop, select_affected,
 };
-use hnl_engine_watch::Watcher;
+use hnl_tool_watch::Watcher;
 
 thread_local! {
     /// Thread-cached canonical kit — same shape as `tests/runner.rs`.
@@ -37,7 +37,7 @@ fn src() -> TestKitSource {
 /// A unique temp dir per test.
 fn tmpdir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "hnl-engine-test-watch-{tag}-{}",
+        "hnl-tool-test-watch-{tag}-{}",
         std::process::id()
     ));
     std::fs::create_dir_all(&dir).unwrap();
@@ -72,7 +72,7 @@ fn select_affected_full_plan_on_empty_change_set() {
     let dir = tmpdir("affected");
     let f = dir.join("t.hnl");
     std::fs::write(&f, "test_t = 1").unwrap();
-    let plan = hnl_engine_test::discover(&src(), std::slice::from_ref(&f)).unwrap();
+    let plan = hnl_tool_test::discover(&src(), std::slice::from_ref(&f)).unwrap();
     assert_eq!(plan.tests.len(), 1);
 
     let out = select_affected(plan.clone(), &[]);

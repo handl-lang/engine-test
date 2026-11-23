@@ -40,9 +40,9 @@ pub struct RunConfig {
     pub cache: Option<TestRunCache>,
     /// Opt-in `.hnl` source coverage (`--coverage`). When `Some`, the
     /// session is installed on each scheduler worker and collects
-    /// line/decl hits; read the merged [`hnl_engine_exec::coverage::CoverageReport`]
+    /// line/decl hits; read the merged [`hnl_exec::coverage::CoverageReport`]
     /// via `config.coverage.as_ref().map(|s| s.report())` after the run.
-    pub coverage: Option<hnl_engine_exec::coverage::CoverageSession>,
+    pub coverage: Option<hnl_exec::coverage::CoverageSession>,
     /// Structured events emitted during the run (output sink).
     pub events: Vec<TestEvent>,
 }
@@ -85,7 +85,7 @@ impl RunConfig {
     }
 
     /// Enable `.hnl` source coverage with the given session (`--coverage`).
-    pub fn with_coverage(mut self, session: hnl_engine_exec::coverage::CoverageSession) -> Self {
+    pub fn with_coverage(mut self, session: hnl_exec::coverage::CoverageSession) -> Self {
         self.coverage = Some(session);
         self
     }

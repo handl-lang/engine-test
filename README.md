@@ -1,6 +1,6 @@
-# engine-test
+# tool-test
 
-`hnl-engine-test` — the bootstrap test runner.
+`hnl-tool-test` — the bootstrap test runner.
 
 An `engine-*` crate: test discovery, tag/filter predicates, scheduling, and
 reporting for `.hnl` test suites, driven by language data rather than a
@@ -8,7 +8,7 @@ hardcoded test format.
 
 ## Crates
 
-- `hnl-engine-test` (root) — the bootstrap test runner.
+- `hnl-tool-test` (root) — the bootstrap test runner.
 - `handl-kit-test` (`crates/kit-test`) — the test-framework kit binding:
   the pure-Handl `test`/`property`/`benchmark`/`fuzz`/`snapshot`/`assert`
   modules plus the deterministic `rand-stub` backend, registered as host

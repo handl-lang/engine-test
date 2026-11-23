@@ -3,7 +3,7 @@
 //!
 //! The loop is single-threaded and never returns on its own — it is the
 //! `hnl test --watch` shape: discover → run → block on
-//! [`hnl_engine_watch::Debouncer`] → re-discover → re-run. Each finished
+//! [`hnl_tool_watch::Debouncer`] → re-discover → re-run. Each finished
 //! run is handed to a caller-supplied sink ([`WatchRound`]) so the CLI can
 //! stream reports instead of returning one-shot JSON.
 //!
@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use handl_plugin_lib_scheduler::SchedulePolicy;
-use hnl_engine_watch::{Debouncer, Error as WatchBackendError, FsEvent, Watcher};
+use hnl_tool_watch::{Debouncer, Error as WatchBackendError, FsEvent, Watcher};
 
 use crate::config::{RunConfig, run_with_config};
 use crate::runner::{DiscoverError, TestCase, TestKitSource, TestPlan};
@@ -96,7 +96,7 @@ pub struct WatchRound {
 /// Errors from [`run_watch`] / [`run_watch_loop`].
 #[derive(Debug)]
 pub enum WatchError {
-    /// The `hnl-engine-watch` backend failed (watch setup, backend error,
+    /// The `hnl-tool-watch` backend failed (watch setup, backend error,
     /// channel disconnect).
     Watch(WatchBackendError),
     /// Test discovery failed on a round.
@@ -177,8 +177,8 @@ fn normalize(path: &Path) -> PathBuf {
 
 /// The watcher-side event filter: only source-relevant events reach the
 /// consumer, so noisy trees never fill the channel.
-fn source_filter() -> hnl_engine_watch::Filter {
-    hnl_engine_watch::Filter::new(|e| {
+fn source_filter() -> hnl_tool_watch::Filter {
+    hnl_tool_watch::Filter::new(|e| {
         is_source_path(&e.path) || e.to.as_deref().is_some_and(is_source_path)
     })
 }
@@ -368,7 +368,7 @@ pub fn run_watch(
     };
     let watcher = Watcher::watch_many(
         &roots,
-        hnl_engine_watch::WatchOptions::new().with_filter(source_filter()),
+        hnl_tool_watch::WatchOptions::new().with_filter(source_filter()),
     )
     .map_err(WatchError::Watch)?;
     let window = if options.debounce.is_zero() {
