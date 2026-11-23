@@ -6,3 +6,7 @@
 
 # myco worktree mount point (created by `myco init`)
 project/
+
+# xtask artifacts (matches sibling repos)
+/xtask/Cargo.lock
+/xtask/target/

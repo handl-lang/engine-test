@@ -25,3 +25,8 @@ modules + the deterministic `rand-stub` backend, vendored from
 repo — the Rust crate is test machinery, not a kit; `kit-test` keeps
 only its `kit.hnl` manifest. Crate name kept as `handl-kit-test` (a
 rename is a separate follow-up).
+
+`src/watch.rs` is the `--watch` mode (`hnl test --watch`, wired in the
+`ext-test` repo): `run_watch`/`run_watch_loop` re-discover and re-run
+affected cases per debounced `hnl-engine-watch` event batch — see the
+module docs for the rerun-granularity contract.

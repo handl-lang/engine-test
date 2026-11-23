@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use handl_kit_core::{KitResolver, ModuleEntry, ModuleCtor, build_type_module};
+use handl_kit_core::{KitResolver, ModuleCtor, ModuleEntry, build_type_module};
 use handl_plugin_lib_handl::HandlModule;
 use handl_plugin_lib_stdlib as stdlib;
 use handl_plugin_lib_tag::TagModule;
@@ -19,26 +19,21 @@ use handl_plugin_lib_tag::TagModule;
 // test framework modules (pure Handl — ADR-0092)
 // ---------------------------------------------------------------------------
 
-const TEST_HNL: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/test.hnl"));
+const TEST_HNL: &str = include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/test.hnl"));
 const TEST_FUNCS: &[&str] = &["run"];
 
-const PROPERTY_HNL: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/property.hnl"));
+const PROPERTY_HNL: &str = include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/property.hnl"));
 const PROPERTY_FUNCS: &[&str] = &["for_all"];
 
-const BENCHMARK_HNL: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/benchmark.hnl"));
+const BENCHMARK_HNL: &str = include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/benchmark.hnl"));
 const BENCHMARK_FUNCS: &[&str] = &["run"];
 
-const FUZZ_HNL: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/fuzz.hnl"));
+const FUZZ_HNL: &str = include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/fuzz.hnl"));
 const FUZZ_FUNCS: &[&str] = &["run"];
 
 // rand-stub — the deterministic, no-effect `rand` backend used by the
 // test framework (`test`/`property`/`fuzz` modules need `rand.*`).
-const RAND_STUB_HNL: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/lib-rand-stub/src/index.hnl"));
+const RAND_STUB_HNL: &str = include_str!(concat!(env!("OUT_DIR"), "/lib-rand-stub/src/index.hnl"));
 const RAND_STUB_FUNCS: &[&str] = &[
     "int",
     "float",
@@ -70,20 +65,12 @@ const RAND_STUB_FUNCS: &[&str] = &[
 // name `posix`, mirroring `rand` → rand-stub above.
 const POSIX_STUB_TIME_HNL: &str =
     include_str!(concat!(env!("OUT_DIR"), "/lib-posix-stub/src/time.hnl"));
-const POSIX_FUNCS: &[&str] = &[
-    "now_ms",
-    "instant_ns",
-    "elapsed_ns",
-    "epoch",
-    "now",
-];
+const POSIX_FUNCS: &[&str] = &["now_ms", "instant_ns", "elapsed_ns", "epoch", "now"];
 
-const SNAPSHOT_HNL: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/snapshot.hnl"));
+const SNAPSHOT_HNL: &str = include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/snapshot.hnl"));
 const SNAPSHOT_FUNCS: &[&str] = &["format", "match"];
 
-const ASSERT_HNL: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/assert.hnl"));
+const ASSERT_HNL: &str = include_str!(concat!(env!("OUT_DIR"), "/lib-test/src/assert.hnl"));
 const ASSERT_FUNCS: &[&str] = &["equal", "not_equal", "true", "false", "contains"];
 
 // ---------------------------------------------------------------------------
@@ -181,15 +168,19 @@ fn build_rand_stub_module() -> HandlModule {
 /// The kit's module table — `test`/`property`/`benchmark`/`fuzz`/
 /// `snapshot`/`assert` plus the `rand` and `posix` stub backends they
 /// depend on.
-pub const MODULES: &[(&'static str, ModuleCtor)] = &[
-    ("test", |_, e| ModuleEntry::Handl(build_test_module().with_eval_engine(e))),
+pub const MODULES: &[(&str, ModuleCtor)] = &[
+    ("test", |_, e| {
+        ModuleEntry::Handl(build_test_module().with_eval_engine(e))
+    }),
     ("property", |_, e| {
         ModuleEntry::Handl(build_property_module().with_eval_engine(e))
     }),
     ("benchmark", |_, e| {
         ModuleEntry::Handl(build_benchmark_module().with_eval_engine(e))
     }),
-    ("fuzz", |_, e| ModuleEntry::Handl(build_fuzz_module().with_eval_engine(e))),
+    ("fuzz", |_, e| {
+        ModuleEntry::Handl(build_fuzz_module().with_eval_engine(e))
+    }),
     ("snapshot", |_, e| {
         ModuleEntry::Handl(build_snapshot_module().with_eval_engine(e))
     }),

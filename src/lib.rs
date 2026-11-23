@@ -33,9 +33,11 @@ pub mod framework;
 pub mod provider;
 pub mod report;
 pub mod runner;
+pub mod watch;
 
 pub use config::*;
 pub use events::*;
 pub use provider::*;
 pub use report::*;
 pub use runner::*;
+pub use watch::*;

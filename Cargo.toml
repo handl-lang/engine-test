@@ -33,6 +33,7 @@ hnl-engine-lex-pattern = { git = "https://github.com/handl-lang/engine-lex-patte
 hnl-engine-parse = { git = "https://github.com/handl-lang/engine-parse", branch = "main" }
 hnl-engine-parse-pratt = { git = "https://github.com/handl-lang/engine-parse-pratt", branch = "main" }
 hnl-engine-exec-tree-walk = { git = "https://github.com/handl-lang/engine-exec-tree-walk", branch = "main" }
+hnl-engine-watch = { git = "https://github.com/handl-lang/engine-watch", branch = "main" }
 handl-plugin-ext-diag = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-scheduler = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-exec-cache = { git = "https://github.com/handl-lang/host", branch = "main" }
