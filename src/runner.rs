@@ -1131,6 +1131,17 @@ impl ModuleLookup for TestModuleLookup {
             .as_ref()
             .and_then(|d| d.lookup_type_signature(name))
     }
+
+    /// P-013 T-148: forward module-export enumeration so `import m`
+    /// signature records (`type.module_sig`) see through this wrapper.
+    fn lookup_module_exports(
+        &self,
+        module_name: &str,
+    ) -> Option<Vec<(String, Option<serde_json::Value>)>> {
+        self.delegate
+            .as_ref()
+            .and_then(|d| d.lookup_module_exports(module_name))
+    }
 }
 
 /// Build a test runtime: a [`Runtime`] with the merged test language, the
