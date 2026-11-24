@@ -971,21 +971,10 @@ fn extract_body_source_at(text: &str) -> (String, usize) {
             continue;
         }
 
-        // `::` binding separator (ADR-0079).
-        if b == b':' && i + 1 < bytes.len() && bytes[i + 1] == b':' {
+        // `:=` binding separator — the ONLY binding operator (`=`/`==`
+        // are equality, `::` is gone).
+        if b == b':' && i + 1 < bytes.len() && bytes[i + 1] == b'=' {
             return trimmed_tail(text, i + 2);
-        }
-
-        if b == b'=' {
-            let prev = if i > 0 { bytes[i - 1] } else { 0 };
-            let next = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
-            // Skip `==`, `>=`, `<=`, `!=`, `=>`
-            if next == b'=' || prev == b'>' || prev == b'<' || prev == b'!' || next == b'>' {
-                i += 1;
-                continue;
-            }
-            // Found the `=` separator.
-            return trimmed_tail(text, i + 1);
         }
         i += 1;
     }
@@ -2248,44 +2237,44 @@ mod tests {
 
     #[test]
     fn split_statements_basic() {
-        let chunks = split_statements("a = 1\nb = 2\nc = 3");
+        let chunks = split_statements("a := 1\nb := 2\nc := 3");
         assert_eq!(chunks.len(), 3);
-        assert_eq!(chunks[0].text, "a = 1");
-        assert_eq!(chunks[1].text, "b = 2");
-        assert_eq!(chunks[2].text, "c = 3");
+        assert_eq!(chunks[0].text, "a := 1");
+        assert_eq!(chunks[1].text, "b := 2");
+        assert_eq!(chunks[2].text, "c := 3");
     }
 
     #[test]
     fn split_statements_semicolons() {
-        let chunks = split_statements("a = 1; b = 2; c = 3");
+        let chunks = split_statements("a := 1; b := 2; c := 3");
         assert_eq!(chunks.len(), 3);
-        assert_eq!(chunks[0].text, "a = 1");
-        assert_eq!(chunks[1].text, "b = 2");
-        assert_eq!(chunks[2].text, "c = 3");
+        assert_eq!(chunks[0].text, "a := 1");
+        assert_eq!(chunks[1].text, "b := 2");
+        assert_eq!(chunks[2].text, "c := 3");
     }
 
     #[test]
     fn split_statements_respects_brackets() {
-        let chunks = split_statements("a = [1, 2\n, 3]\nb = 2");
+        let chunks = split_statements("a := [1, 2\n, 3]\nb := 2");
         assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].text, "a = [1, 2\n, 3]");
-        assert_eq!(chunks[1].text, "b = 2");
+        assert_eq!(chunks[0].text, "a := [1, 2\n, 3]");
+        assert_eq!(chunks[1].text, "b := 2");
     }
 
     #[test]
     fn split_statements_respects_strings() {
-        let chunks = split_statements("a = \"hello\nworld\"\nb = 2");
+        let chunks = split_statements("a := \"hello\nworld\"\nb := 2");
         assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].text, "a = \"hello\nworld\"");
-        assert_eq!(chunks[1].text, "b = 2");
+        assert_eq!(chunks[0].text, "a := \"hello\nworld\"");
+        assert_eq!(chunks[1].text, "b := 2");
     }
 
     #[test]
     fn split_statements_ignores_comments() {
-        let chunks = split_statements("-- a comment\na = 1\nb = 2");
+        let chunks = split_statements("-- a comment\na := 1\nb := 2");
         assert_eq!(chunks.len(), 2);
-        assert_eq!(chunks[0].text, "a = 1");
-        assert_eq!(chunks[1].text, "b = 2");
+        assert_eq!(chunks[0].text, "a := 1");
+        assert_eq!(chunks[1].text, "b := 2");
     }
 
     #[test]
@@ -2296,60 +2285,64 @@ mod tests {
 
     #[test]
     fn extract_body_source_simple() {
-        assert_eq!(extract_body_source("test_foo = 42"), "42");
-        assert_eq!(extract_body_source("test_bar = 1 + 1"), "1 + 1");
+        assert_eq!(extract_body_source("test_foo := 42"), "42");
+        assert_eq!(extract_body_source("test_bar := 1 + 1"), "1 + 1");
     }
 
     #[test]
     fn extract_body_source_no_equals() {
         assert_eq!(extract_body_source("42"), "42");
+        // `=` is equality, not a binding separator — no `:=` means the
+        // whole chunk is the body candidate.
+        assert_eq!(extract_body_source("test_eq := 1 == 1"), "test_eq := 1 == 1");
     }
 
     #[test]
     fn extract_body_source_skips_comparison() {
-        // `==` should not be treated as a binding `=`.
-        assert_eq!(extract_body_source("test_eq = 1 == 1"), "1 == 1");
+        // `==` inside the body is untouched — the `:=` separator splits first.
+        assert_eq!(extract_body_source("test_eq := 1 == 1"), "1 == 1");
     }
 
     #[test]
     fn extract_body_source_bind_operator() {
-        // `::` is the binding separator (ADR-0079); `=` inside the body is
-        // equality, not the separator. Regression: previously the first `=`
-        // was used, which truncated `assert a = b` bodies to just the
-        // expected literal — so every `assert` test passed vacuously.
+        // `:=` is the binding separator (the ONLY one); `=`/`==` inside
+        // the body are equality, not the separator. Regression: previously
+        // the first `=` was used, which truncated `assert a = b` bodies to
+        // just the expected literal — so every `assert` test passed
+        // vacuously.
         assert_eq!(
-            extract_body_source("test_foo :: assert 1 = 2"),
-            "assert 1 = 2"
+            extract_body_source("test_foo := assert 1 == 2"),
+            "assert 1 == 2"
         );
     }
 
     #[test]
     fn extract_body_source_skips_equals_in_strings() {
-        // `=` inside a string literal is not the separator.
+        // `=`/`:=` inside a string literal are not the separator.
         assert_eq!(
-            extract_body_source("test_foo :: \"x = y\" >>> f = \"z\""),
-            "\"x = y\" >>> f = \"z\""
+            extract_body_source("test_foo := \"x = y\" >>> f := \"z\""),
+            "\"x = y\" >>> f := \"z\""
         );
         // And `::` inside a string literal is not the separator either.
-        assert_eq!(extract_body_source("test_foo = \"x :: y\""), "\"x :: y\"");
+        assert_eq!(extract_body_source("test_foo := \"x :: y\""), "\"x :: y\"");
     }
 
     #[test]
     fn eval_test_body_fails_on_false_equality() {
         // Regression: `assert 1 = 2` must fail, not silently pass.
-        let (result, _dur, _detail) = eval_test_body(&canonical_source(), "assert 1 = 2");
+        let (result, _dur, _detail) = eval_test_body(&canonical_source(), "assert 1 == 2");
         assert!(
             matches!(result, TestResult::Fail { .. }),
-            "expected `assert 1 = 2` to fail, got {result:?}"
+            "expected `assert 1 == 2` to fail, got {result:?}"
         );
     }
 
     #[test]
     fn eval_test_body_passes_on_true_equality() {
-        let (result, _dur, _detail) = eval_test_body(&canonical_source(), "assert 1 = 1");
+        let (result, _dur, _detail) = eval_test_body(&canonical_source(), "assert 1 == 1");
         assert!(
             matches!(result, TestResult::Pass),
-            "expected `assert 1 = 1` to pass, got {result:?}"
+            "expected `assert 1 == 1` to pass, got {result:?}"
         );
     }
 

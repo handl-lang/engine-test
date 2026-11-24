@@ -443,8 +443,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let a = dir.join("a.hnl");
         let helper = dir.join("helper.hnl");
-        std::fs::write(&a, "test_a = 1").unwrap();
-        std::fs::write(&helper, "x = 1").unwrap();
+        std::fs::write(&a, "test_a := 1").unwrap();
+        std::fs::write(&helper, "x := 1").unwrap();
 
         // `b.hnl` is a different module that file-imports `helper.hnl`.
         let mut with_import = case(&dir.join("b.hnl").display().to_string(), "");

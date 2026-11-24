@@ -50,7 +50,7 @@ fn default_watch_roots_dirs_and_files() {
     let sub = dir.join("sub");
     std::fs::create_dir_all(&sub).unwrap();
     let file = sub.join("a.hnl");
-    std::fs::write(&file, "test_a = 1").unwrap();
+    std::fs::write(&file, "test_a := 1").unwrap();
 
     let roots = default_watch_roots(&[sub.clone(), file.clone()]);
     // The directory watches itself; the file watches its parent — which is
@@ -71,7 +71,7 @@ fn source_path_classification() {
 fn select_affected_full_plan_on_empty_change_set() {
     let dir = tmpdir("affected");
     let f = dir.join("t.hnl");
-    std::fs::write(&f, "test_t = 1").unwrap();
+    std::fs::write(&f, "test_t := 1").unwrap();
     let plan = hnl_tool_test::discover(&src(), std::slice::from_ref(&f)).unwrap();
     assert_eq!(plan.tests.len(), 1);
 
@@ -95,7 +95,7 @@ fn select_affected_full_plan_on_empty_change_set() {
 fn watch_loop_reruns_on_change() {
     let dir = tmpdir("e2e");
     let test_file = dir.join("watchme.hnl");
-    std::fs::write(&test_file, "test_watch = 1 + 1\n").unwrap();
+    std::fs::write(&test_file, "test_watch := 1 + 1\n").unwrap();
 
     let watcher = Watcher::watch(&dir).expect("watch tempdir");
     let debouncer = watcher.debounced(Duration::from_millis(50));
@@ -105,7 +105,7 @@ fn watch_loop_reruns_on_change() {
         let f = test_file.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(300));
-            std::fs::write(&f, "test_watch = 2 + 2\n").unwrap();
+            std::fs::write(&f, "test_watch := 2 + 2\n").unwrap();
         })
     };
 

@@ -6,11 +6,11 @@
 #
 # Surface syntax:
 #
-#   test name = body
-#   property name = body
-#   integration_test name = body
-#   bench name = body
-#   assert expr = expr       -- keyword assertion
+#   test name := body
+#   property name := body
+#   integration_test name := body
+#   bench name := body
+#   assert expr = expr       -- keyword assertion (`=` is equality)
 #
 # Each declaration parses to a node with named children (`name`/`body` for
 # the test kinds, `expr` for `assert`). The eval scheme returns the `body`
@@ -63,7 +63,7 @@ grammar:
     token: token.keyword.test
     position: Prefix
     binding_power:
-      # 6 > assign's lbp (5) so the name child stops before the `=`
+      # 6 > assign's lbp (5) so the name child stops before the `:=`
       # separator (same trick as the `data` row in the canonical grammar).
       - 6
       - 0
@@ -71,12 +71,12 @@ grammar:
       node_kind: test
       arity: 2
       child_separators:
-        - !Required token.bind
+        - !Required token.colon_equal
   - id: grammar.property.prefix
     token: token.keyword.property
     position: Prefix
     binding_power:
-      # 6 > assign's lbp (5) so the name child stops before the `=`
+      # 6 > assign's lbp (5) so the name child stops before the `:=`
       # separator (same trick as the `data` row in the canonical grammar).
       - 6
       - 0
@@ -84,12 +84,12 @@ grammar:
       node_kind: property
       arity: 2
       child_separators:
-        - !Required token.bind
+        - !Required token.colon_equal
   - id: grammar.integration_test.prefix
     token: token.keyword.integration_test
     position: Prefix
     binding_power:
-      # 6 > assign's lbp (5) so the name child stops before the `=`
+      # 6 > assign's lbp (5) so the name child stops before the `:=`
       # separator (same trick as the `data` row in the canonical grammar).
       - 6
       - 0
@@ -97,12 +97,12 @@ grammar:
       node_kind: integration_test
       arity: 2
       child_separators:
-        - !Required token.bind
+        - !Required token.colon_equal
   - id: grammar.bench.prefix
     token: token.keyword.bench
     position: Prefix
     binding_power:
-      # 6 > assign's lbp (5) so the name child stops before the `=`
+      # 6 > assign's lbp (5) so the name child stops before the `:=`
       # separator (same trick as the `data` row in the canonical grammar).
       - 6
       - 0
@@ -110,13 +110,13 @@ grammar:
       node_kind: bench
       arity: 2
       child_separators:
-        - !Required token.bind
+        - !Required token.colon_equal
   - id: grammar.assert.prefix
     token: token.keyword.assert
     position: Prefix
     binding_power:
-      # 0 < assign's lbp (5) so the child can consume an `=` separator
-      # (e.g. `assert 1 + 1 = 2`).
+      # 0 < eq's lbp so the child can consume an `=`/`==` comparison
+      # (e.g. `assert 1 + 1 = 2` — `=` is equality).
       - 0
       - 0
     child_shape:
