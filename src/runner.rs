@@ -728,12 +728,15 @@ pub fn base_runtime(rt: &Runtime, module_root: Option<PathBuf>) -> Runtime {
 ///
 /// Both discovery and execution use this merged language so that
 /// `test "name" = body`-style declarations parse and evaluate identically
-/// in both stages (ADR-0089, ADR-0044).
+/// in both stages (ADR-0089, ADR-0044). Public so other tooling that
+/// consumes `*.test.hnl` sources — e.g. `hnl typecheck` routing test
+/// files through the same fragment — merges the identical language
+/// rather than duplicating the YAML.
 ///
 /// # Errors
 ///
 /// Returns an error string if the test-language merge fails.
-fn test_language(base: &Language) -> Result<Language, String> {
+pub fn test_language(base: &Language) -> Result<Language, String> {
     let mut lang = base.clone();
     lang.merge(test_language_fragment()?)
         .map_err(|e| format!("failed to merge test-language fragment: {e}"))?;
