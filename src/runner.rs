@@ -485,42 +485,20 @@ fn resolve_dep_spec(spec: &str, deps: &HashMap<String, PathBuf>) -> Option<PathB
         None => (spec, None),
     };
     let dep_dir = deps.get(first)?;
-    let joined = match rest {
-        Some(r) if !r.is_empty() => dep_dir.join(r),
-        _ => dep_dir.clone(),
-    };
-    resolve_spec_to_file(&joined.to_string_lossy(), Path::new(""))
+    // pkg.hnl `modules:`/`src/` layout first (dep names are package
+    // abstractions), literal `<dep_dir>/<rest>` as fallback — same as
+    // `ModuleLoader::resolve_path` via `handl_platform::dep_spec_file`.
+    handl_platform::dep_spec_file(dep_dir, rest.unwrap_or(""))
 }
 
 /// Resolve an import specifier to an existing file under `base`, mirroring
-/// `ModuleLoader`'s candidate order: a directory resolves to `index.hnl`
-/// or `<dir>/<name>.hnl`; a bare name tries `<path>.hnl`; an existing file
-/// resolves to itself.
+/// `ModuleLoader`'s candidate order via [`handl_platform::relative_spec_file`]:
+/// the literal candidate first (a directory resolves to `index.hnl` or
+/// `<dir>/<name>.hnl`; a bare name tries `<path>.hnl`; an existing file
+/// resolves to itself), then `pkg.hnl` package layouts reachable through
+/// the spec's own directory prefixes.
 fn resolve_spec_to_file(spec: &str, base: &Path) -> Option<PathBuf> {
-    let joined = if Path::new(spec).is_absolute() {
-        PathBuf::from(spec)
-    } else {
-        base.join(spec)
-    };
-    if joined.is_dir() {
-        let index = joined.join("index.hnl");
-        if index.is_file() {
-            return Some(index);
-        }
-        if let Some(name) = joined.file_name().and_then(|s| s.to_str()) {
-            let main = joined.join(format!("{name}.hnl"));
-            if main.is_file() {
-                return Some(main);
-            }
-        }
-    }
-    if !spec.ends_with(".hnl") {
-        let with_ext = joined.with_extension("hnl");
-        if with_ext.is_file() {
-            return Some(with_ext);
-        }
-    }
-    if joined.is_file() { Some(joined) } else { None }
+    handl_platform::relative_spec_file(base, spec)
 }
 
 /// Extract tags declared in `-- tags: ...` doc-comment lines immediately
