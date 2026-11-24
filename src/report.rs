@@ -320,13 +320,8 @@ impl CoverageReporter {
             // the map can attribute (distinct origin lines), not the
             // file's total — comments/blank lines are never coverable.
             if let Some(file_hits) = &src.file_line_hits {
-                let mapped: std::collections::BTreeSet<u32> = src
-                    .line_map
-                    .iter()
-                    .flatten()
-                    .flatten()
-                    .copied()
-                    .collect();
+                let mapped: std::collections::BTreeSet<u32> =
+                    src.line_map.iter().flatten().flatten().copied().collect();
                 let file_pct = if mapped.is_empty() {
                     0.0
                 } else {

@@ -148,13 +148,9 @@ impl TestCase {
     /// carries a prepared-line → file-line map so reports resolve hits
     /// to module-file lines; otherwise it stays plain prepared
     /// coordinates.
-    fn coverage_source(
-        &self,
-        body: &str,
-    ) -> hnl_exec::coverage::CoverageSource {
+    fn coverage_source(&self, body: &str) -> hnl_exec::coverage::CoverageSource {
         let name = self.module.display().to_string();
-        let mut src = hnl_exec::coverage::CoverageSource::new(name.clone(), body)
-            .with_origin(name);
+        let mut src = hnl_exec::coverage::CoverageSource::new(name.clone(), body).with_origin(name);
         if let Some(fl) = &self.file_lines {
             let mut map = hnl_exec::coverage::OriginLineMap::new();
             if self.preamble.is_empty() {
@@ -373,10 +369,7 @@ fn is_import_decl(trimmed: &str) -> bool {
 /// Returns the preamble text plus an [`OriginLineMap`][`hnl_exec::coverage::OriginLineMap`]:
 /// each preamble line records the module-file line its statement came
 /// from (generated lowerings attribute to their declaration's line).
-fn import_preamble(
-    src: &str,
-    module: &Path,
-) -> (String, hnl_exec::coverage::OriginLineMap) {
+fn import_preamble(src: &str, module: &Path) -> (String, hnl_exec::coverage::OriginLineMap) {
     let base = module.parent().map(Path::to_path_buf);
     let cwd = std::env::current_dir().ok();
     // `.handl.toml` `[dependencies]` for the project this module belongs to
@@ -397,7 +390,8 @@ fn import_preamble(
         // File line the declaration starts on — provenance for both the
         // kept (path-rewritten) statement and the lowered bindings.
         let decl_line = Some(handl_runtime::module_prep::line_number_at(
-            src, chunk.offset,
+            src,
+            chunk.offset,
         ));
         // `import <name> ...` is a module-name declaration (never
         // executable); bind `name := "name"` so the bare name dispatches
@@ -816,7 +810,8 @@ fn discover_tests_in_module(
             // Verbatim helper statement — its lines map to the file
             // lines the chunk occupies; the `;` separator is generated.
             let chunk_line = Some(handl_runtime::module_prep::line_number_at(
-                src, chunk.offset,
+                src,
+                chunk.offset,
             ));
             preamble_map.push(&chunk.text, chunk_line);
             preamble.push_str(&chunk.text);
@@ -851,10 +846,8 @@ fn discover_tests_in_module(
                 // The body expression is the text after the `=`
                 // separator in the declaration chunk.
                 let (body_source, body_off) = extract_body_source_at(&chunk.text);
-                let body_line = handl_runtime::module_prep::line_number_at(
-                    src,
-                    chunk.offset + body_off,
-                );
+                let body_line =
+                    handl_runtime::module_prep::line_number_at(src, chunk.offset + body_off);
                 let span =
                     Span::from_byte_range(chunk.offset, chunk.offset + chunk.text.len(), src);
                 let tags = extract_doc_tags(src, chunk.offset);
@@ -896,10 +889,8 @@ fn discover_tests_in_module(
                     // Extract the body source: the text after `=`
                     // in the chunk, or the whole chunk if no `=`.
                     let (body_source, body_off) = extract_body_source_at(&chunk.text);
-                    let body_line = handl_runtime::module_prep::line_number_at(
-                        src,
-                        chunk.offset + body_off,
-                    );
+                    let body_line =
+                        handl_runtime::module_prep::line_number_at(src, chunk.offset + body_off);
                     let span =
                         Span::from_byte_range(chunk.offset, chunk.offset + chunk.text.len(), src);
                     let tags = extract_doc_tags(src, chunk.offset);
@@ -2305,7 +2296,10 @@ mod tests {
         assert_eq!(extract_body_source("42"), "42");
         // `=` is equality, not a binding separator — no `:=` means the
         // whole chunk is the body candidate.
-        assert_eq!(extract_body_source("test_eq := 1 == 1"), "test_eq := 1 == 1");
+        assert_eq!(
+            extract_body_source("test_eq := 1 == 1"),
+            "test_eq := 1 == 1"
+        );
     }
 
     #[test]

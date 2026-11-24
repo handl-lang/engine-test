@@ -36,10 +36,8 @@ fn src() -> TestKitSource {
 
 /// A unique temp dir per test.
 fn tmpdir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "hnl-tool-test-watch-{tag}-{}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("hnl-tool-test-watch-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

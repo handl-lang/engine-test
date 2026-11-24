@@ -1069,10 +1069,7 @@ fn coverage_resolves_file_lines_through_prep() {
         .iter()
         .flat_map(|s| s.decls.iter().map(|d| d.file_line))
         .collect();
-    assert!(
-        decl_file_lines.contains(&Some(4)),
-        "{decl_file_lines:?}"
-    );
+    assert!(decl_file_lines.contains(&Some(4)), "{decl_file_lines:?}");
     // JSON exposes the same resolution.
     let json = cov.to_json();
     let file_hits: Vec<u64> = json["sources"]
