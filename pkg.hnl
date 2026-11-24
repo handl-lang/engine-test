@@ -1,0 +1,5 @@
+-- tool-test: package manifest — the `pred` case-selection predicate
+-- library (ADR-0160). Resolved sibling-first (`../lib-pred`, the
+-- local-development checkout) and over git into the package cache when
+-- no sibling exists; `branch:main` tracks lib-pred's default branch.
+{ deps: { pred: "branch:main" } }

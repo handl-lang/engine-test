@@ -1221,14 +1221,18 @@ pub fn run_with_filter(source: &TestKitSource, plan: &TestPlan, filter: &str) ->
 // `plugin-lib-predicate` crate). Rust keeps only the spec record
 // `{ names: [..], tags: [..] }` and the `pred.matches` host call.
 
-/// The `pred` package directory (ADR-0160): the sibling checkout in a workspace,
-/// or the loader's package cache when `HANDL_PKG_DIR` is set. The package is
-/// plain `.hnl` — there is no Rust shell to `include_str!` any more.
+/// The `pred` package directory (ADR-0160): resolved through this
+/// repo's own `pkg.hnl` `deps` — the sibling `lib-pred` checkout in a
+/// workspace (the dev fast path), or the loader's package cache after a
+/// git fetch of `handl-lang/lib-pred@main` when no sibling exists. The
+/// package is plain `.hnl` — there is no Rust shell to `include_str!`
+/// any more.
 fn pred_package_dir() -> std::path::PathBuf {
-    if let Some(dir) = std::env::var_os("HANDL_PKG_DIR") {
-        return std::path::PathBuf::from(dir).join("lib-pred");
-    }
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../lib-pred")
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    handl_platform::resolve_pkg_dependencies(&manifest_dir)
+        .ok()
+        .and_then(|deps| deps.get("pred").cloned())
+        .unwrap_or_else(|| manifest_dir.join("../lib-pred"))
 }
 
 /// The `pred` module definition: source + its discovered record fields.
