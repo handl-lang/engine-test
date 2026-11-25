@@ -30,3 +30,18 @@ rename is a separate follow-up).
 `ext-test` repo): `run_watch`/`run_watch_loop` re-discover and re-run
 affected cases per debounced `hnl-tool-watch` event batch — see the
 module docs for the rerun-granularity contract.
+
+## Layout
+
+| path | role |
+| --- | --- |
+| `src/{lib,config,events,provider,report,runner,watch}.rs`, `src/framework/` | the `hnl-tool-test` runner — discovery, tag/filter predicates, scheduling, reporting |
+| `crates/kit-test/` | `handl-kit-test` — the kit binding; `build.rs` vendors `lib-test`/`lib-rand-stub`/`lib-posix-stub` via `handl-pkg-vendor` |
+| `tests/` | runner + watch suites (`runner.rs`, `watch.rs`) + `fixtures/` |
+| `xtask/`, `workflows/gate.yaml`, `bupha.toml` | vendored repo gate + CI wiring |
+
+## Verification
+
+```bash
+cargo xtask gate   # fmt -> clippy -D warnings -> test -> doc
+```
