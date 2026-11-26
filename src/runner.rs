@@ -1683,6 +1683,38 @@ fn module_env(
         .clone()
 }
 
+/// Ensure this thread's cached test [`Runtime`] exists for `source`,
+/// building it lazily on first use (or when `source` differs from the
+/// factory that built the cached one). Returns the runtime handle or the
+/// setup error message.
+///
+/// Split out of [`eval_test_case`] so the per-test-timeout path can warm
+/// an eval thread's caches *outside* the timed window — runtime
+/// construction is setup, not test evaluation.
+fn ensure_test_runtime(source: &TestKitSource) -> Result<Rc<Runtime>, String> {
+    TEST_RUNTIME.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let stale = match borrow.as_ref() {
+            Some(worker) => !Arc::ptr_eq(&worker.source, source),
+            None => true,
+        };
+        if stale {
+            let rt = source().and_then(|base| build_test_runtime(&base))?;
+            *borrow = Some(WorkerRuntime {
+                source: Arc::clone(source),
+                rt: Rc::new(rt),
+                envs: HashMap::new(),
+            });
+        }
+        Ok(Rc::clone(
+            &borrow
+                .as_ref()
+                .expect("runtime initialized above")
+                .rt,
+        ))
+    })
+}
+
 /// Evaluate a single test case on the calling thread's cached runtime.
 ///
 /// `source` is invoked here — inside the job closure, on the worker
@@ -1710,33 +1742,21 @@ fn eval_test_case(
 ) -> (TestResult, Duration, FailureDetail) {
     crate::framework::clear_last_assert_failure();
     let start = Instant::now();
+    let rt = match ensure_test_runtime(source) {
+        Ok(rt) => rt,
+        Err(msg) => {
+            return (
+                TestResult::Fail {
+                    message: format!("runtime setup error: {msg}"),
+                },
+                start.elapsed(),
+                FailureDetail::default(),
+            );
+        }
+    };
     let (result, failure) = TEST_RUNTIME.with(|cell| {
         let mut borrow = cell.borrow_mut();
-        let stale = match borrow.as_ref() {
-            Some(worker) => !Arc::ptr_eq(&worker.source, source),
-            None => true,
-        };
-        if stale {
-            match source().and_then(|base| build_test_runtime(&base)) {
-                Ok(rt) => {
-                    *borrow = Some(WorkerRuntime {
-                        source: Arc::clone(source),
-                        rt: Rc::new(rt),
-                        envs: HashMap::new(),
-                    });
-                }
-                Err(msg) => {
-                    return (
-                        TestResult::Fail {
-                            message: format!("runtime setup error: {msg}"),
-                        },
-                        FailureDetail::default(),
-                    );
-                }
-            }
-        }
         let worker = borrow.as_mut().expect("runtime initialized above");
-        let rt = Rc::clone(&worker.rt);
         // The preamble env is built lazily on the first test of each
         // module this worker runs; later tests reuse the cached bindings.
         let env = module_env(&mut worker.envs, &rt, case);
@@ -1922,7 +1942,20 @@ fn spawn_eval_thread() -> Option<EvalThread> {
 /// fresh one; the abandoned job's thread leaks until process exit —
 /// unavoidable without engine-level cancellation, and bounded by the
 /// number of timed-out tests.
-fn eval_with_timeout(mut job: EvalJob, timeout: Duration, start: Instant) -> EvalOutcome {
+///
+/// `warm_source` is the [`TestKitSource`] the job evaluates under. Before
+/// the timed job is dispatched, a lightweight warm job runs
+/// [`ensure_test_runtime`] on the eval thread *outside* the timeout
+/// window: runtime construction is one-time setup, not test evaluation —
+/// without it the first job on a fresh (or source-stale) eval thread
+/// would spend its whole budget building the [`Runtime`] and report a
+/// spurious [`TestResult::Timeout`].
+fn eval_with_timeout(
+    mut job: EvalJob,
+    warm_source: TestKitSource,
+    timeout: Duration,
+    start: Instant,
+) -> EvalOutcome {
     EVAL_THREAD.with(|cell| {
         let mut slot = cell.borrow_mut();
         // Two attempts: the first send fails when the previous eval
@@ -1940,6 +1973,25 @@ fn eval_with_timeout(mut job: EvalJob, timeout: Duration, start: Instant) -> Eva
                     FailureDetail::default(),
                 );
             };
+            // Warm the eval thread's runtime caches ahead of the timed
+            // job. The warm job's reply is awaited *untimed* — it is
+            // setup, not evaluation. A dead eval thread fails the send
+            // (or drops the warm reply); either way the real job's send
+            // below hits the same dead channel and the retry path
+            // respawns.
+            let warm: EvalJob = {
+                let source = Arc::clone(&warm_source);
+                Box::new(move || {
+                    let _ = ensure_test_runtime(&source);
+                    (TestResult::Pass, Duration::ZERO, FailureDetail::default())
+                })
+            };
+            let (warm_tx, warm_rx) = mpsc::channel();
+            if tx.send((warm, warm_tx)).is_err() {
+                *slot = None;
+                continue;
+            }
+            let _ = warm_rx.recv();
             let (reply_tx, reply_rx) = mpsc::channel();
             match tx.send((job, reply_tx)) {
                 Ok(()) => {
@@ -2094,6 +2146,9 @@ pub(crate) fn run_selected_impl(
         jobs.push((
             i,
             Box::new(move || {
+                // Clone for the eval thread's untimed runtime warm-up —
+                // `eval` below consumes `job_source`.
+                let warm_source = Arc::clone(&job_source);
                 // The whole eval — coverage install included — is the
                 // timed unit: it runs on the worker's eval thread when a
                 // timeout is configured (the session's TLS is per-thread,
@@ -2105,7 +2160,12 @@ pub(crate) fn run_selected_impl(
                     eval_test_case(&job_source, &job_case)
                 };
                 match timeout {
-                    Some(limit) => eval_with_timeout(Box::new(eval), limit, Instant::now()),
+                    Some(limit) => eval_with_timeout(
+                        Box::new(eval),
+                        warm_source,
+                        limit,
+                        Instant::now(),
+                    ),
                     None => eval(),
                 }
             }),
