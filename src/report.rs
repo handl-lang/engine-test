@@ -21,7 +21,7 @@
 
 use std::time::Duration;
 
-use crate::runner::{RunReport, TestResult};
+use crate::runner::{FailureDetail, RunReport, TestResult};
 
 // ---------------------------------------------------------------------------
 // Summary
@@ -92,8 +92,25 @@ pub trait Reporter {
     fn format(&self, report: &RunReport, summary: &Summary) -> String;
 }
 
-/// Human-readable console reporter: one `PASS`/`FAIL`/`SKIP` line per
-/// test grouped under a `== <suite> ==` header per module (the suite
+/// Append the populated [`FailureDetail`] fields as indented
+/// `key: value` lines (ADR-0089 §"Structured failures") — emitted only
+/// when populated. Shared by the `FAIL` and `TIMEOUT` report lines.
+fn push_failure_detail(out: &mut String, detail: &FailureDetail) {
+    for (key, value) in [
+        ("assertion", &detail.assertion),
+        ("expected", &detail.expected),
+        ("actual", &detail.actual),
+        ("diff", &detail.diff),
+        ("cause", &detail.cause),
+    ] {
+        if let Some(v) = value {
+            out.push_str(&format!("      {key}: {v}\n"));
+        }
+    }
+}
+
+/// Human-readable console reporter: one `PASS`/`FAIL`/`TIMEOUT`/`SKIP`
+/// line per test grouped under a `== <suite> ==` header per module (the suite
 /// boundary — see [`crate::events::TestEvent::SuiteStarted`]), then a
 /// summary line. Failures print their populated
 /// [`crate::runner::FailureDetail`] fields (`assertion`, `expected`,
@@ -130,20 +147,11 @@ impl Reporter for HumanReporter {
                         "FAIL  {} ({}): {}\n",
                         outcome.case.name, module, message
                     ));
-                    // Structured failure detail (ADR-0089 §"Structured
-                    // failures"): emitted only when populated.
-                    let detail = &outcome.failure;
-                    for (key, value) in [
-                        ("assertion", &detail.assertion),
-                        ("expected", &detail.expected),
-                        ("actual", &detail.actual),
-                        ("diff", &detail.diff),
-                        ("cause", &detail.cause),
-                    ] {
-                        if let Some(v) = value {
-                            out.push_str(&format!("      {key}: {v}\n"));
-                        }
-                    }
+                    push_failure_detail(&mut out, &outcome.failure);
+                }
+                TestResult::Timeout => {
+                    out.push_str(&format!("TIMEOUT {} ({})\n", outcome.case.name, module));
+                    push_failure_detail(&mut out, &outcome.failure);
                 }
                 TestResult::Skip => {
                     out.push_str(&format!("SKIP  {} ({})\n", outcome.case.name, module));
@@ -190,6 +198,7 @@ impl Reporter for JsonReporter {
                     TestResult::Pass => "pass",
                     TestResult::Fail { .. } => "fail",
                     TestResult::Skip => "skip",
+                    TestResult::Timeout => "timeout",
                 };
                 let mut entry = serde_json::json!({
                     "name": outcome.case.name,
@@ -197,8 +206,14 @@ impl Reporter for JsonReporter {
                     "status": status,
                     "duration_ms": outcome.duration.as_secs_f64() * 1000.0,
                 });
-                if let TestResult::Fail { message } = &outcome.result {
-                    entry["message"] = serde_json::Value::String(message.clone());
+                match &outcome.result {
+                    TestResult::Fail { message } => {
+                        entry["message"] = serde_json::Value::String(message.clone());
+                    }
+                    TestResult::Timeout => {
+                        entry["message"] = serde_json::Value::String("test timed out".to_string());
+                    }
+                    _ => {}
                 }
                 // Structured failure fields (ADR-0089). Only emitted when
                 // populated — the pure-handl `assert.*` helpers
@@ -228,7 +243,8 @@ impl Reporter for JsonReporter {
             let module = outcome.case.module.display().to_string();
             let status = match &outcome.result {
                 TestResult::Pass => "passed",
-                TestResult::Fail { .. } => "failed",
+                // Timeouts count toward the suite's failed total.
+                TestResult::Fail { .. } | TestResult::Timeout => "failed",
                 TestResult::Skip => "skipped",
             };
             let needs_new = suites.last().and_then(|s| s["name"].as_str()) != Some(module.as_str());

@@ -41,6 +41,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::mpsc;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -263,6 +264,10 @@ pub enum TestResult {
     },
     /// Test was skipped (filtered out).
     Skip,
+    /// Test exceeded the per-test timeout (`RunConfig::timeout`). Counts
+    /// as a failure; the still-running evaluation is abandoned (Rust
+    /// threads cannot be killed — see [`crate::config::RunConfig::timeout`]).
+    Timeout,
 }
 
 /// Structured failure detail (ADR-0089 §"Structured failures").
@@ -322,11 +327,11 @@ impl RunReport {
             .count()
     }
 
-    /// Number of failed tests.
+    /// Number of failed tests (assertion/raise failures and timeouts).
     pub fn failed(&self) -> usize {
         self.outcomes
             .iter()
-            .filter(|o| matches!(o.result, TestResult::Fail { .. }))
+            .filter(|o| matches!(o.result, TestResult::Fail { .. } | TestResult::Timeout))
             .count()
     }
 
@@ -343,11 +348,11 @@ impl RunReport {
         self.outcomes.len()
     }
 
-    /// True iff any test failed.
+    /// True iff any test failed (including timeouts).
     pub fn has_failures(&self) -> bool {
         self.outcomes
             .iter()
-            .any(|o| matches!(o.result, TestResult::Fail { .. }))
+            .any(|o| matches!(o.result, TestResult::Fail { .. } | TestResult::Timeout))
     }
 }
 
@@ -1839,13 +1844,152 @@ fn job_error_result(err: JobError) -> (TestResult, Duration, FailureDetail) {
             FailureDetail::default(),
         ),
         JobError::Timeout => (
-            TestResult::Fail {
-                message: "test job timed out".to_string(),
-            },
+            TestResult::Timeout,
             Duration::ZERO,
             FailureDetail::default(),
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Per-test timeout (opt-in — `RunConfig::timeout`)
+// ---------------------------------------------------------------------------
+//
+// Rust cannot kill a running thread, so a timeout is enforced by moving
+// each timed job onto a dedicated "eval" thread owned by the scheduler
+// worker and bounding the worker's wait with `recv_timeout`. On expiry
+// the worker reports [`TestResult::Timeout`] and retires the eval thread:
+// the stuck job keeps running (leaked until process exit) but can no
+// longer receive work, and the next job gets a fresh thread.
+//
+// The eval thread is *long-lived per worker*, not per test: jobs run on
+// it through a channel exactly as they would on the worker itself, so
+// the `TEST_RUNTIME`/`WorkerRuntime` caches (test [`Runtime`] + per-module
+// preamble envs) keep working unchanged — the `Rc`-based [`Runtime`]
+// never crosses a thread boundary.
+
+/// The outcome triple a test job produces.
+type EvalOutcome = (TestResult, Duration, FailureDetail);
+
+/// A boxed test job dispatched to a worker's eval thread.
+type EvalJob = Box<dyn FnOnce() -> EvalOutcome + Send>;
+
+/// One request on an eval thread's channel: the job plus the reply
+/// channel the worker waits on (bounded by the per-test timeout).
+type EvalRequest = (EvalJob, mpsc::Sender<EvalOutcome>);
+
+/// A scheduler worker's dedicated eval thread: the sending half of its
+/// job channel. The receiving half lives on the spawned thread.
+struct EvalThread {
+    tx: mpsc::Sender<EvalRequest>,
+}
+
+thread_local! {
+    /// The worker's eval thread, created lazily on the first timed job.
+    /// `None` means "no thread yet" or "the previous one was retired after
+    /// a timeout/panic — spawn a fresh one on the next job".
+    static EVAL_THREAD: RefCell<Option<EvalThread>> = const { RefCell::new(None) };
+}
+
+/// Spawn a fresh eval thread and return its sending half. Returns `None`
+/// when the OS refuses the thread — the caller reports the job as a
+/// failure rather than running it unbounded.
+fn spawn_eval_thread() -> Option<EvalThread> {
+    let (tx, rx) = mpsc::channel::<EvalRequest>();
+    std::thread::Builder::new()
+        .name("hnl-test-eval".to_string())
+        .spawn(move || {
+            while let Ok((job, reply)) = rx.recv() {
+                // A timed-out job's reply receiver is dropped by the
+                // worker; the send then fails and the late result is
+                // discarded. (The worker retires the thread on timeout
+                // anyway, so a *stuck* job never reaches the next
+                // iteration — this covers jobs that finish after the
+                // deadline but before retirement is observed.)
+                let _ = reply.send(job());
+            }
+        })
+        .ok()
+        .map(|_| EvalThread { tx })
+}
+
+/// Run `job` on this worker's eval thread, returning its outcome or a
+/// [`TestResult::Timeout`] once `timeout` elapses.
+///
+/// `start` is taken by the caller so the reported duration measures the
+/// whole dispatch (channel hop included). On timeout the eval thread is
+/// retired (`EVAL_THREAD` reset to `None`) so subsequent jobs spawn a
+/// fresh one; the abandoned job's thread leaks until process exit —
+/// unavoidable without engine-level cancellation, and bounded by the
+/// number of timed-out tests.
+fn eval_with_timeout(mut job: EvalJob, timeout: Duration, start: Instant) -> EvalOutcome {
+    EVAL_THREAD.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        // Two attempts: the first send fails when the previous eval
+        // thread panicked mid-job (its receiver is gone); respawn once.
+        for _ in 0..2 {
+            if slot.is_none() {
+                *slot = spawn_eval_thread();
+            }
+            let Some(tx) = slot.as_ref().map(|eval| eval.tx.clone()) else {
+                return (
+                    TestResult::Fail {
+                        message: "failed to spawn test eval thread".to_string(),
+                    },
+                    start.elapsed(),
+                    FailureDetail::default(),
+                );
+            };
+            let (reply_tx, reply_rx) = mpsc::channel();
+            match tx.send((job, reply_tx)) {
+                Ok(()) => {
+                    return match reply_rx.recv_timeout(timeout) {
+                        Ok(outcome) => outcome,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // The job is still running and cannot be
+                            // killed; retire the thread so the next job
+                            // gets a fresh one.
+                            *slot = None;
+                            (
+                                TestResult::Timeout,
+                                start.elapsed(),
+                                FailureDetail {
+                                    cause: Some(format!(
+                                        "exceeded per-test timeout of {timeout:?}"
+                                    )),
+                                    ..FailureDetail::default()
+                                },
+                            )
+                        }
+                        // The eval thread died without replying — the
+                        // job panicked (the scheduler's `catch_unwind`
+                        // equivalent for the hop).
+                        Err(mpsc::RecvTimeoutError::Disconnected) => (
+                            TestResult::Fail {
+                                message: "test job panicked".to_string(),
+                            },
+                            start.elapsed(),
+                            FailureDetail::default(),
+                        ),
+                    };
+                }
+                Err(send_err) => {
+                    // Dead eval thread: take the job back and retry on a
+                    // fresh thread.
+                    let (returned_job, _reply) = send_err.0;
+                    job = returned_job;
+                    *slot = None;
+                }
+            }
+        }
+        (
+            TestResult::Fail {
+                message: "test eval thread unavailable".to_string(),
+            },
+            start.elapsed(),
+            FailureDetail::default(),
+        )
+    })
 }
 
 /// A queued test job: the plan index plus the thunk that runs the case.
@@ -1875,7 +2019,7 @@ pub fn run_selected(
     predicate: &Filter,
     policy: &SchedulePolicy,
 ) -> RunReport {
-    run_selected_impl(source, plan, predicate, policy, None, None, None)
+    run_selected_impl(source, plan, predicate, policy, None, None, None, None)
 }
 
 /// Shared implementation for [`run_selected`], [`run_selected_cached`],
@@ -1887,11 +2031,17 @@ pub fn run_selected(
 /// `TestCached`/`TestStarted`/`TestFinished` + `TestFailed`),
 /// `SuiteFinished`, and `RunFinished` last. Events are emitted only on
 /// this thread, so ordering is deterministic under any `--jobs`.
+///
+/// `timeout`, when `Some`, bounds each selected test's evaluation
+/// ([`TestResult::Timeout`] on expiry — see the "Per-test timeout"
+/// section). `None` runs unbounded, the historical behavior.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_selected_impl(
     source: &TestKitSource,
     plan: &TestPlan,
     predicate: &Filter,
     policy: &SchedulePolicy,
+    timeout: Option<Duration>,
     mut cache: Option<&mut TestRunCache>,
     coverage: Option<&hnl_exec::coverage::CoverageSession>,
     mut events: Option<&mut Vec<TestEvent>>,
@@ -1944,10 +2094,20 @@ pub(crate) fn run_selected_impl(
         jobs.push((
             i,
             Box::new(move || {
-                if let Some(session) = &job_coverage {
-                    session.install_local();
+                // The whole eval — coverage install included — is the
+                // timed unit: it runs on the worker's eval thread when a
+                // timeout is configured (the session's TLS is per-thread,
+                // so it must be installed *there*, not on the worker).
+                let eval = move || {
+                    if let Some(session) = &job_coverage {
+                        session.install_local();
+                    }
+                    eval_test_case(&job_source, &job_case)
+                };
+                match timeout {
+                    Some(limit) => eval_with_timeout(Box::new(eval), limit, Instant::now()),
+                    None => eval(),
                 }
-                eval_test_case(&job_source, &job_case)
             }),
         ));
     }
@@ -2066,13 +2226,18 @@ pub(crate) fn run_selected_impl(
                             duration,
                         },
                     );
-                    if let TestResult::Fail { message } = &result {
+                    let fail_message = match &result {
+                        TestResult::Fail { message } => Some(message.clone()),
+                        TestResult::Timeout => Some("test timed out".to_string()),
+                        _ => None,
+                    };
+                    if let Some(message) = fail_message {
                         emit(
                             &mut events,
                             TestEvent::TestFailed {
                                 module: case.module.clone(),
                                 name: case.name.clone(),
-                                message: message.clone(),
+                                message,
                             },
                         );
                     }
@@ -2292,7 +2457,16 @@ pub fn run_selected_cached(
     policy: &SchedulePolicy,
     cache: &mut TestRunCache,
 ) -> RunReport {
-    run_selected_impl(source, plan, predicate, policy, Some(cache), None, None)
+    run_selected_impl(
+        source,
+        plan,
+        predicate,
+        policy,
+        None,
+        Some(cache),
+        None,
+        None,
+    )
 }
 
 // ---------------------------------------------------------------------------

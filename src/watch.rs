@@ -55,6 +55,9 @@ pub struct WatchRunOptions {
     pub predicate: Filter,
     /// Scheduler policy for each round.
     pub policy: SchedulePolicy,
+    /// Per-test timeout applied to every round (`RunConfig::timeout`).
+    /// `None` runs unbounded — a hung test hangs the round, as before.
+    pub timeout: Option<Duration>,
     /// Debounce window; `Duration::ZERO` falls back to
     /// [`DEFAULT_DEBOUNCE`].
     pub debounce: Duration,
@@ -71,6 +74,7 @@ impl Default for WatchRunOptions {
             watch_roots: Vec::new(),
             predicate: Filter::all(),
             policy: SchedulePolicy::default(),
+            timeout: None,
             debounce: DEFAULT_DEBOUNCE,
             max_rounds: None,
         }
@@ -328,6 +332,7 @@ fn run_round(source: &TestKitSource, plan: &TestPlan, options: &WatchRunOptions)
     let mut config = RunConfig {
         predicate: options.predicate.clone(),
         policy: options.policy,
+        timeout: options.timeout,
         cache: None,
         coverage: None,
         events: Vec::new(),

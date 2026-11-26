@@ -12,6 +12,8 @@
 //! [`crate::runner::run_selected_cached`] functions are thin wrappers over
 //! this entry point.
 
+use std::time::Duration;
+
 use handl_plugin_lib_scheduler::SchedulePolicy;
 
 use crate::events::TestEvent;
@@ -43,6 +45,18 @@ pub struct RunConfig {
     /// line/decl hits; read the merged [`hnl_exec::coverage::CoverageReport`]
     /// via `config.coverage.as_ref().map(|s| s.report())` after the run.
     pub coverage: Option<hnl_exec::coverage::CoverageSession>,
+    /// Opt-in per-test timeout. When `Some`, each selected test's
+    /// evaluation is bounded; a test that exceeds the limit is reported
+    /// as [`crate::runner::TestResult::Timeout`] (counted as a failure)
+    /// and the run continues with the remaining tests.
+    ///
+    /// **Default: `None` (no timeout).** Opt-in like `--cache`/`--coverage`:
+    /// a wrong default kills legitimate slow tests, which is worse than a
+    /// hang a patient user can interrupt. Enforcement cannot kill the
+    /// Rust thread running the eval — the timed-out evaluation is
+    /// abandoned and its thread leaks until process exit (bounded by the
+    /// number of timed-out tests; see `runner::eval_with_timeout`).
+    pub timeout: Option<Duration>,
     /// Structured events emitted during the run (output sink).
     pub events: Vec<TestEvent>,
 }
@@ -89,6 +103,16 @@ impl RunConfig {
         self.coverage = Some(session);
         self
     }
+
+    /// Bound each test's evaluation to `timeout` (`--timeout`).
+    ///
+    /// Tests exceeding the limit report [`crate::runner::TestResult::Timeout`]
+    /// and count as failures; the run continues. See
+    /// [`RunConfig::timeout`] for the leak-on-timeout caveat.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
 }
 
 /// Run a test plan under a [`RunConfig`].
@@ -111,6 +135,7 @@ pub fn run_with_config(
         plan,
         &config.predicate,
         &config.policy,
+        config.timeout,
         config.cache.as_mut(),
         config.coverage.as_ref(),
         Some(&mut config.events),

@@ -1,0 +1,7 @@
+-- Fixture for the per-test timeout (`RunConfig::timeout`): `test_hang`
+-- loops forever — the `while` state never produces `out`, so the eval
+-- never terminates — and `test_after` must still run and pass once the
+-- hang is reported as `TestResult::Timeout`.
+
+test_hang := while { i: 0 } { (st) ~> { state: { i: st.i } } }
+test_after := 1 + 1

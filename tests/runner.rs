@@ -548,6 +548,100 @@ fn filtered_out_tests_are_not_cached() {
 }
 
 // ---------------------------------------------------------------------------
+// Per-test timeout tests (`RunConfig::timeout`)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn per_test_timeout_marks_hang_and_continues() {
+    // `timeout.handl` has `test_hang` (an infinite `while` loop) followed by
+    // `test_after`. With a timeout configured the hang reports
+    // `TestResult::Timeout`, counts as a failure, and the remaining test
+    // still runs and passes — sequentially, so a hang cannot stall the
+    // suite.
+    let plan = discover(&src(), &[fixture("timeout.handl")]).unwrap();
+    assert_eq!(plan.tests.len(), 2);
+    let mut config = RunConfig::new()
+        .with_policy(SchedulePolicy::sequential())
+        .with_timeout(std::time::Duration::from_millis(500));
+    let report = run_with_config(&src(), &plan, &mut config);
+
+    assert_eq!(report.total(), 2);
+    assert!(
+        matches!(report.outcomes[0].result, TestResult::Timeout),
+        "test_hang should time out, got {:?}",
+        report.outcomes[0].result
+    );
+    assert!(
+        report.outcomes[0].duration >= std::time::Duration::from_millis(500),
+        "timeout duration should measure the elapsed wait, got {:?}",
+        report.outcomes[0].duration
+    );
+    assert!(matches!(report.outcomes[1].result, TestResult::Pass));
+    assert_eq!(report.passed(), 1);
+    assert_eq!(report.failed(), 1);
+    assert!(report.has_failures());
+
+    // The timeout emits the usual failure events for the hung test.
+    assert!(config.events.iter().any(|e| matches!(
+        e,
+        TestEvent::TestFinished {
+            name,
+            result: TestResult::Timeout,
+            ..
+        } if name == "test_hang"
+    )));
+    assert!(config.events.iter().any(|e| matches!(
+        e,
+        TestEvent::TestFailed { name, .. } if name == "test_hang"
+    )));
+
+    // Human report shows a distinct TIMEOUT line; JSON reports
+    // `"status": "timeout"`.
+    let human = format_report_human(&report);
+    assert!(
+        human.contains("TIMEOUT test_hang"),
+        "human report:\n{human}"
+    );
+    assert!(human.contains("PASS  test_after"), "human report:\n{human}");
+    let json = format_report_json(&report);
+    assert!(
+        json.contains("\"status\":\"timeout\""),
+        "json report: {json}"
+    );
+}
+
+#[test]
+fn per_test_timeout_parallel_still_times_out() {
+    // Same fixture under parallel dispatch: the hung job occupies one
+    // worker's eval thread while the other test completes on another.
+    let plan = discover(&src(), &[fixture("timeout.handl")]).unwrap();
+    let mut config = RunConfig::new()
+        .with_policy(SchedulePolicy::parallel(2))
+        .with_timeout(std::time::Duration::from_millis(500));
+    let report = run_with_config(&src(), &plan, &mut config);
+    assert!(matches!(report.outcomes[0].result, TestResult::Timeout));
+    assert!(matches!(report.outcomes[1].result, TestResult::Pass));
+}
+
+#[test]
+fn timeout_does_not_affect_fast_tests() {
+    // A generous timeout leaves ordinary runs untouched.
+    let plan = discover(&src(), &[fixture("mixed.handl")]).unwrap();
+    let mut config = RunConfig::new()
+        .with_policy(SchedulePolicy::sequential())
+        .with_timeout(std::time::Duration::from_secs(30));
+    let report = run_with_config(&src(), &plan, &mut config);
+    assert_eq!(report.passed(), 2);
+    assert_eq!(report.failed(), 1);
+    assert!(
+        !report
+            .outcomes
+            .iter()
+            .any(|o| matches!(o.result, TestResult::Timeout))
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Structured-event tests (ADR-0089 §"Observability")
 // ---------------------------------------------------------------------------
 
