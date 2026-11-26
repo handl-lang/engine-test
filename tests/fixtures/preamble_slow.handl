@@ -1,0 +1,19 @@
+-- Slow-fixture module: the top-level `burn`/`slow_total` preamble is
+-- expensive, so the runner must evaluate it once per module — not once
+-- per test. `burn(n)` sums 1..=n via a `while` countdown.
+
+burn := n ~> {
+  while { i: n, acc: 0 } {
+    (st) ~> if st.i <= 0 {
+      { out: st.acc }
+    } else {
+      { state: { i: st.i - 1, acc: st.acc + st.i } }
+    }
+  }
+}
+
+slow_total := burn(30000)
+
+test_slow_a := slow_total == 450015000
+test_slow_b := slow_total > 0
+test_slow_c := slow_total + 1 == 450015001

@@ -1040,7 +1040,9 @@ fn coverage_resolves_file_lines_through_prep() {
     run_with_config(&src(), &plan, &mut config);
 
     let cov = session.report();
-    assert_eq!(cov.sources.len(), 2, "{cov:?}");
+    // Three registered sources: the once-per-module preamble env, plus
+    // one per distinct test body (dedup is by name+text).
+    assert_eq!(cov.sources.len(), 3, "{cov:?}");
     // Every discovered source carries provenance + resolved hits.
     for s in &cov.sources {
         assert!(s.line_map.is_some(), "{s:?}");
@@ -1080,4 +1082,30 @@ fn coverage_resolves_file_lines_through_prep() {
         .flat_map(|m| m.keys().filter_map(|k| k.parse::<u64>().ok()))
         .collect();
     assert!(file_hits.contains(&7) && file_hits.contains(&8), "{json}");
+}
+
+// ---------------------------------------------------------------------------
+// Once-per-module preamble evaluation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn preamble_evaluated_once_per_module() {
+    // `preamble_slow.handl` has an expensive top-level fixture
+    // (`slow_total := burn(30000)`). The runner evaluates the preamble
+    // once per module per worker — lazily inside the first job — and
+    // injects the resulting bindings as per-call globals, so later tests
+    // measure body-only time. Under the old per-test
+    // `do { preamble; body }` wrap every duration carried the preamble
+    // cost.
+    let plan = discover(&src(), &[fixture("preamble_slow.handl")]).unwrap();
+    let report = run(&src(), &plan);
+    assert_eq!(report.total(), 3);
+    assert_eq!(report.passed(), 3, "{:?}", report.outcomes);
+    let durs: Vec<std::time::Duration> = report.outcomes.iter().map(|o| o.duration).collect();
+    let first = durs[0];
+    let rest: std::time::Duration = durs[1..].iter().sum();
+    assert!(
+        rest * 2 < first,
+        "preamble appears to be re-evaluated per test: durations {durs:?}"
+    );
 }

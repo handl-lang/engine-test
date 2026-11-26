@@ -143,11 +143,13 @@ pub struct TestCase {
 }
 
 impl TestCase {
-    /// The coverage source for this case's eval `body` — the exact text
-    /// `rt.run` parses. When [`Self::file_lines`] is present the source
+    /// The coverage source for this case's **legacy** eval `body` — the
+    /// `do { preamble; body_source }` wrap used when the module env cannot
+    /// be projected. When [`Self::file_lines`] is present the source
     /// carries a prepared-line → file-line map so reports resolve hits
     /// to module-file lines; otherwise it stays plain prepared
-    /// coordinates.
+    /// coordinates. (The env path uses [`Self::body_coverage_source`]
+    /// and [`Self::env_coverage_source`] instead.)
     fn coverage_source(&self, body: &str) -> hnl_exec::coverage::CoverageSource {
         let name = self.module.display().to_string();
         let mut src = hnl_exec::coverage::CoverageSource::new(name.clone(), body).with_origin(name);
@@ -165,6 +167,53 @@ impl TestCase {
                 map.push(&self.body_source, Some(fl.body_line));
                 map.push("\n}", None);
             }
+            src = src.with_file_lines(map.into_vec(), Some(fl.origin_lines));
+        }
+        src
+    }
+
+    /// The coverage source for the once-per-module preamble eval — the
+    /// `module_prep`-prepared env text, with its line map composed through
+    /// [`FileLineProvenance::preamble_map`] back to module-file lines
+    /// (prepared line → preamble line → file line).
+    fn env_coverage_source(
+        &self,
+        prepared: &handl_runtime::module_prep::PreparedModule,
+    ) -> hnl_exec::coverage::CoverageSource {
+        let name = self.module.display().to_string();
+        let mut src =
+            hnl_exec::coverage::CoverageSource::new(name.clone(), prepared.source.clone())
+                .with_origin(name);
+        if let Some(fl) = &self.file_lines {
+            let map: Vec<Option<u32>> = prepared
+                .line_map
+                .iter()
+                .map(|&line| {
+                    line.and_then(|preamble_line| {
+                        (preamble_line as usize)
+                            .checked_sub(1)
+                            .and_then(|i| fl.preamble_map.get(i))
+                            .copied()
+                            .flatten()
+                    })
+                })
+                .collect();
+            src = src.with_file_lines(map, Some(fl.origin_lines));
+        }
+        src
+    }
+
+    /// The coverage source for the env-path body eval — `body_source`
+    /// verbatim (contiguous file lines from `body_line`), since the
+    /// preamble no longer rides inside the evaluated text.
+    fn body_coverage_source(&self) -> hnl_exec::coverage::CoverageSource {
+        let name = self.module.display().to_string();
+        let mut src =
+            hnl_exec::coverage::CoverageSource::new(name.clone(), self.body_source.clone())
+                .with_origin(name);
+        if let Some(fl) = &self.file_lines {
+            let mut map = hnl_exec::coverage::OriginLineMap::new();
+            map.push(&self.body_source, Some(fl.body_line));
             src = src.with_file_lines(map.into_vec(), Some(fl.origin_lines));
         }
         src
@@ -1390,16 +1439,50 @@ pub fn tag_expr_predicate(expr: &str) -> Filter {
 // Scheduled execution (generic bounded-job scheduler, ADR-0089)
 // ---------------------------------------------------------------------------
 
+/// A worker thread's cached test runtime plus its per-module preamble
+/// environments (see [`TEST_RUNTIME`]).
+struct WorkerRuntime {
+    /// The [`TestKitSource`] that produced `rt` — compared with
+    /// `Arc::ptr_eq` so a second caller's factory never reuses a runtime
+    /// the first built.
+    source: TestKitSource,
+    /// The test runtime (merged test language, kit module chain, assert
+    /// handler).
+    rt: Rc<Runtime>,
+    /// Evaluated module preambles, keyed by module path. An entry is
+    /// rebuilt when the case's `preamble` text changes (watch-mode
+    /// reruns), so a stale env is never injected into a test.
+    envs: HashMap<PathBuf, ModuleEnvEntry>,
+}
+
+/// One module's cached preamble evaluation.
+struct ModuleEnvEntry {
+    /// The [`TestCase::preamble`] text the env was built from.
+    preamble: String,
+    /// `Ok` — the preamble's bound names/values, injected into each test
+    /// eval as per-call globals. `Err` — env construction failed; every
+    /// test in the module takes the legacy `do { preamble; body }` path.
+    env: Result<Rc<ModuleEnv>, String>,
+}
+
+/// A module preamble's evaluated bindings.
+struct ModuleEnv {
+    /// `(name, value)` pairs — the names a `do { preamble; … }` eval
+    /// would leave in scope, re-injected per test via
+    /// [`Runtime::eval_shared_with_call_args`].
+    bindings: Vec<(String, Value)>,
+}
+
 thread_local! {
-    /// Per-worker cached test runtime, keyed by the source that built it.
+    /// Per-worker cached test runtime and per-module eval environments,
+    /// keyed by the source that built the runtime.
     ///
     /// [`Runtime`] is not `Send` (the module chain is `Rc`-based), so it
     /// cannot be shared across scheduler worker threads. Each worker builds
     /// one lazily on first use and reuses it across all jobs dispatched to
     /// that thread. The injected [`TestKitSource`] rides along so a second
     /// caller's factory never reuses a runtime the first built.
-    static TEST_RUNTIME: RefCell<Option<(TestKitSource, Rc<Runtime>)>> =
-        const { RefCell::new(None) };
+    static TEST_RUNTIME: RefCell<Option<WorkerRuntime>> = const { RefCell::new(None) };
 }
 
 /// Whether a test-body value is an `err`-tagged result (the `assert`
@@ -1472,31 +1555,171 @@ fn err_payload(value: &Value) -> Option<&serde_json::Map<String, Value>> {
     }
 }
 
-/// Evaluate a single test body on the calling thread's cached runtime.
+/// Push `source` as the active coverage source when a session is
+/// installed on this thread; `None` when coverage is inactive (the
+/// common case) or the source id is stale.
+fn push_coverage_source(
+    source: hnl_exec::coverage::CoverageSource,
+) -> Option<hnl_exec::coverage::CoverageGuard> {
+    if !hnl_exec::coverage::CoverageSession::is_active_local() {
+        return None;
+    }
+    hnl_exec::coverage::CoverageSession::register(source)
+        .and_then(hnl_exec::coverage::CoverageSession::push_source)
+}
+
+/// Whether `name` can be a `:=` binding target — i.e. lexes as a lone
+/// `token.identifier` (keywords like `first` cannot). Mirrors
+/// `ModuleLoader::is_bindable_name`.
+fn is_bindable_name(rt: &Runtime, name: &str) -> bool {
+    rt.lex(&Source::new(name))
+        .map(|toks| {
+            toks.as_slice().len() == 1
+                && rt
+                    .lang()
+                    .token_in_category(&toks.as_slice()[0].kind, "identifier")
+        })
+        .unwrap_or(false)
+}
+
+/// Whether `preamble` contains a top-level `export` declaration.
+///
+/// `module_prep` projects only *exported* names when a module has
+/// `export` declarations, which would silently drop private helper
+/// bindings from the eval env — those files keep the legacy per-test
+/// `do { preamble; body }` wrap. The check is a conservative text scan
+/// over statement chunks; a false positive only costs the legacy path.
+fn preamble_has_export(preamble: &str) -> bool {
+    handl_plugin_ext_diag::split_statements(preamble)
+        .iter()
+        .any(|chunk| {
+            let t = chunk.text.trim_start();
+            t == "export" || t.starts_with("export ") || t.starts_with("export\t")
+        })
+}
+
+/// Evaluate `case`'s preamble once and project its top-level bindings
+/// into a [`ModuleEnv`].
+///
+/// The preamble is prepared exactly like an imported `.hnl` module
+/// ([`handl_runtime::module_prep::prepare_module_mapped`]): executable
+/// file imports are hoisted, module-name imports lower to
+/// `name := "spec.name"` bindings, and — with no `export` declarations —
+/// every top-level bound name is projected into the resulting record.
+/// The record's fields become the per-test globals, so test bodies see
+/// the same names the old `do { preamble; body }` wrap provided.
+fn build_module_env(rt: &Runtime, case: &TestCase) -> Result<ModuleEnv, String> {
+    if preamble_has_export(&case.preamble) {
+        return Err("preamble contains export declarations".to_string());
+    }
+    let prepared = handl_runtime::module_prep::prepare_module_mapped(
+        &case.preamble,
+        &|spec: &str| Path::new(spec).is_file() || spec.ends_with(".hnl"),
+        &|name: &str| is_bindable_name(rt, name),
+    )
+    .map_err(|e| e.to_string())?;
+    let _cov = push_coverage_source(case.env_coverage_source(&prepared));
+    // Same coverage constraint as test bodies: `rt.run`'s arrow-
+    // interpreter fast path records no engine spans, so covered runs
+    // evaluate through the tree-walk engine explicitly.
+    let value = if hnl_exec::coverage::CoverageSession::is_active_local() {
+        let src = Source::new(prepared.source.as_str());
+        rt.lex(&src)
+            .and_then(|toks| rt.parse(&toks))
+            .and_then(|ast| rt.eval_with_globals(&ast, &HashMap::new()))
+    } else {
+        rt.run(&Source::new(prepared.source.as_str()))
+    }
+    .map_err(|e| e.to_string())?;
+    let Value::Object(obj) = value else {
+        return Err("module preamble did not evaluate to a record".to_string());
+    };
+    let mut bindings = Vec::with_capacity(obj.len());
+    for (name, val) in obj {
+        // Only identifier-bindable names can be referenced from a test
+        // body; quoted record keys (e.g. keyword names) stay unused.
+        if is_bindable_name(rt, &name) {
+            bindings.push((name, val));
+        }
+    }
+    Ok(ModuleEnv { bindings })
+}
+
+/// Resolve `case`'s module preamble environment, building and caching it
+/// in `envs` on first use. An entry is rebuilt whenever the preamble text
+/// changes, so watch-mode reruns never inject a stale env.
+fn module_env(
+    envs: &mut HashMap<PathBuf, ModuleEnvEntry>,
+    rt: &Runtime,
+    case: &TestCase,
+) -> Result<Rc<ModuleEnv>, String> {
+    if case.preamble.trim().is_empty() {
+        return Ok(Rc::new(ModuleEnv {
+            bindings: Vec::new(),
+        }));
+    }
+    let stale = match envs.get(&case.module) {
+        Some(entry) => entry.preamble != case.preamble,
+        None => true,
+    };
+    if stale {
+        let env = build_module_env(rt, case).map(Rc::new);
+        envs.insert(
+            case.module.clone(),
+            ModuleEnvEntry {
+                preamble: case.preamble.clone(),
+                env,
+            },
+        );
+    }
+    envs.get(&case.module)
+        .expect("module env entry inserted above")
+        .env
+        .clone()
+}
+
+/// Evaluate a single test case on the calling thread's cached runtime.
 ///
 /// `source` is invoked here — inside the job closure, on the worker
 /// thread — to produce the base [`Runtime`] this thread's test runtime is
 /// built from (see `TEST_RUNTIME`).
 ///
+/// The module preamble (file imports + top-level helper bindings) is
+/// evaluated **once per module per worker**: its bound names/values are
+/// projected to a record by `module_prep`, cached in
+/// [`WorkerRuntime::envs`], and injected into each test-body eval as
+/// per-call globals. Globals are read-only snapshots — a test assigning
+/// a preamble name defines a fresh local — so tests stay isolated exactly
+/// as they were under the old per-test `do { preamble; body }` wrap.
+/// Modules whose preamble cannot be projected (e.g. `export`
+/// declarations, or a preamble that does not evaluate to a record) keep
+/// the legacy wrap.
+///
 /// Returns the [`TestResult`], measured duration, and any structured
 /// failure detail captured from the assert framework. The `Instant` is
 /// taken inside the job closure (i.e. on the worker thread), so the
 /// measurement is parallel-safe and independent of dispatch order.
-fn eval_test_body(
+fn eval_test_case(
     source: &TestKitSource,
-    body_source: &str,
+    case: &TestCase,
 ) -> (TestResult, Duration, FailureDetail) {
     crate::framework::clear_last_assert_failure();
     let start = Instant::now();
     let (result, failure) = TEST_RUNTIME.with(|cell| {
         let mut borrow = cell.borrow_mut();
         let stale = match borrow.as_ref() {
-            Some((cached_source, _)) => !Arc::ptr_eq(cached_source, source),
+            Some(worker) => !Arc::ptr_eq(&worker.source, source),
             None => true,
         };
         if stale {
             match source().and_then(|base| build_test_runtime(&base)) {
-                Ok(rt) => *borrow = Some((Arc::clone(source), Rc::new(rt))),
+                Ok(rt) => {
+                    *borrow = Some(WorkerRuntime {
+                        source: Arc::clone(source),
+                        rt: Rc::new(rt),
+                        envs: HashMap::new(),
+                    });
+                }
                 Err(msg) => {
                     return (
                         TestResult::Fail {
@@ -1507,22 +1730,57 @@ fn eval_test_body(
                 }
             }
         }
-        let rt = &borrow.as_ref().expect("runtime initialized above").1;
+        let worker = borrow.as_mut().expect("runtime initialized above");
+        let rt = Rc::clone(&worker.rt);
+        // The preamble env is built lazily on the first test of each
+        // module this worker runs; later tests reuse the cached bindings.
+        let env = module_env(&mut worker.envs, &rt, case);
+
         // Coverage instruments the tree-walk engine only. `Runtime::run`'s
         // `Runtime::eval` fast path lowers pure terms to the arrow
         // interpreter (`interpret_with_handlers`), which never touches
         // `eval_node_inner_unguarded` — bodies it handles would record
         // zero hits. When a coverage session is installed on this worker,
-        // route through `eval_with_globals` (engine eval directly) so the
-        // report covers every test body. Opt-in runs only; the default
-        // path is unchanged.
-        let run_result = if hnl_exec::coverage::CoverageSession::is_active_local() {
-            let src = Source::new(body_source);
-            rt.lex(&src)
-                .and_then(|toks| rt.parse(&toks))
-                .and_then(|ast| rt.eval_with_globals(&ast, &HashMap::new()))
-        } else {
-            rt.run(&Source::new(body_source))
+        // route through engine eval (`eval_shared_with_call_args` /
+        // `eval_with_globals`) so the report covers every test body.
+        // Opt-in runs only; the default path is unchanged.
+        let run_result = match &env {
+            // Preamble evaluated once; inject its bindings as per-call
+            // globals and evaluate the body alone.
+            Ok(env) if !env.bindings.is_empty() => {
+                let src = Source::new(case.body_source.as_str());
+                let _cov = push_coverage_source(case.body_coverage_source());
+                rt.lex(&src)
+                    .and_then(|toks| rt.parse(&toks))
+                    .and_then(|ast| rt.eval_shared_with_call_args(&Rc::new(ast), &env.bindings))
+            }
+            // No injectable bindings (empty preamble, or a preamble that
+            // bound nothing): the body alone is the whole eval, so the
+            // `rt.run` fast path stays available when coverage is off.
+            Ok(_) if !hnl_exec::coverage::CoverageSession::is_active_local() => {
+                rt.run(&Source::new(case.body_source.as_str()))
+            }
+            Ok(_) => {
+                let src = Source::new(case.body_source.as_str());
+                let _cov = push_coverage_source(case.body_coverage_source());
+                rt.lex(&src)
+                    .and_then(|toks| rt.parse(&toks))
+                    .and_then(|ast| rt.eval_with_globals(&ast, &HashMap::new()))
+            }
+            // Env construction failed — legacy per-test wrap so the
+            // preamble's statements re-evaluate inside each test's scope.
+            Err(_) => {
+                let body = format!("do {{\n{}\n{}\n}}", case.preamble, case.body_source);
+                let _cov = push_coverage_source(case.coverage_source(&body));
+                let src = Source::new(body.as_str());
+                if hnl_exec::coverage::CoverageSession::is_active_local() {
+                    rt.lex(&src)
+                        .and_then(|toks| rt.parse(&toks))
+                        .and_then(|ast| rt.eval_with_globals(&ast, &HashMap::new()))
+                } else {
+                    rt.run(&src)
+                }
+            }
         };
         match run_result {
             Ok(value) => {
@@ -1548,6 +1806,26 @@ fn eval_test_body(
         }
     });
     (result, start.elapsed(), failure)
+}
+
+/// Evaluate a bare test body (no module preamble) on the calling
+/// thread's cached runtime — the unit-test entry point; real cases go
+/// through [`eval_test_case`].
+#[cfg(test)]
+fn eval_test_body(
+    source: &TestKitSource,
+    body_source: &str,
+) -> (TestResult, Duration, FailureDetail) {
+    let case = TestCase {
+        module: PathBuf::new(),
+        name: String::new(),
+        body_source: body_source.to_string(),
+        preamble: String::new(),
+        file_lines: None,
+        span: Span::default(),
+        tags: Vec::new(),
+    };
+    eval_test_case(source, &case)
 }
 
 /// Convert a scheduler [`JobError`] into a run result.
@@ -1648,37 +1926,28 @@ pub(crate) fn run_selected_impl(
         }
 
         states.push(TestState::Run);
-        // `rt.run` parses a single expression (the Pratt parser consumes
-        // one statement per call), so a multi-statement `preamble + body`
-        // source would silently evaluate only the import preamble — the
-        // assertion would never run. Wrap in `do { ... }` so the whole
-        // sequence evaluates and the block's value is the body's result,
-        // mirroring `hnl run`'s treatment of multi-statement sources.
-        let body = if case.preamble.is_empty() {
-            case.body_source.clone()
-        } else {
-            format!("do {{\n{}\n{}\n}}", case.preamble, case.body_source)
-        };
         // The factory is `Send + Sync` (capture-less by contract), so it
         // can ride into the job and produce the worker's base runtime
-        // on-thread.
+        // on-thread. The whole case rides along too: `eval_test_case`
+        // evaluates the module preamble once per worker (cached in
+        // `WorkerRuntime::envs`) and injects its bindings as per-call
+        // globals, falling back to the legacy `do { preamble; body }`
+        // wrap when the preamble cannot be projected.
         let job_source = Arc::clone(source);
-        // Coverage (opt-in): install the shared session on this worker
-        // and register the test source — the exact `body` text `rt.run`
-        // parses (do-wrapped when a preamble is present). Spans index
-        // that text; `case.coverage_source` attaches the file-line
-        // provenance map when the case came from a real module file.
+        let job_case = case.clone();
+        // Coverage (opt-in): install the shared session on this worker;
+        // `eval_test_case` registers the exact source text each eval path
+        // parses (body-only for the env path, `do { preamble; body }`
+        // for the legacy fallback, the prepared env text for the once-
+        // per-module preamble eval).
         let job_coverage = coverage.cloned();
-        let cov_source = case.coverage_source(&body);
         jobs.push((
             i,
             Box::new(move || {
-                let _cov = job_coverage.as_ref().map(|session| {
+                if let Some(session) = &job_coverage {
                     session.install_local();
-                    hnl_exec::coverage::CoverageSession::register(cov_source.clone())
-                        .and_then(hnl_exec::coverage::CoverageSession::push_source)
-                });
-                eval_test_body(&job_source, &body)
+                }
+                eval_test_case(&job_source, &job_case)
             }),
         ));
     }
@@ -2276,12 +2545,9 @@ mod tests {
     #[test]
     fn extract_body_source_no_equals() {
         assert_eq!(extract_body_source("42"), "42");
-        // `=` is equality, not a binding separator — no `:=` means the
-        // whole chunk is the body candidate.
-        assert_eq!(
-            extract_body_source("test_eq := 1 == 1"),
-            "test_eq := 1 == 1"
-        );
+        // `==` is equality, not a binding separator — the first `:=`
+        // still delimits the body.
+        assert_eq!(extract_body_source("test_eq := 1 == 1"), "1 == 1");
     }
 
     #[test]
