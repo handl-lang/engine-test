@@ -1,0 +1,17 @@
+-- Export-declaring module: `export` statements must not force the
+-- legacy per-test `do { preamble; body }` wrap. The preamble env
+-- projects EVERY top-level binding (exported or not), and arrow
+-- bindings must survive per-call global injection — the env eval goes
+-- through the tree-walk engine so functions arrive as `__arrow__`
+-- closures the body eval can call.
+
+F := new Inductive { C : (n : Number) ~> F, D : F }
+mk := (x) ~> F.C(x)
+helper := (x) ~> x + 1
+internal := 7
+export F, mk, helper
+
+test_helper_call := helper(1) == 2
+test_internal_visible := internal == 7
+test_mk_field := mk(3).n == 3
+test_mk_match := match mk(4) { F.C(n): n == 4, F.D: false }

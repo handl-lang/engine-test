@@ -1203,3 +1203,35 @@ fn preamble_evaluated_once_per_module() {
         "preamble appears to be re-evaluated per test: durations {durs:?}"
     );
 }
+
+#[test]
+fn export_preamble_projects_full_scope() {
+    // `export_preamble.handl` declares `export` — the env path must still
+    // apply (scope projection covers private bindings like `internal`),
+    // and arrow bindings (`helper`, `mk`) must arrive as callable
+    // `__arrow__` closures, not term-interpreter serializations.
+    let plan = discover(&src(), &[fixture("export_preamble.handl")]).unwrap();
+    assert!(plan.parse_errors.is_empty(), "{:?}", plan.parse_errors);
+    let report = run(&src(), &plan);
+    assert_eq!(report.total(), 4);
+    assert_eq!(report.passed(), 4, "{:?}", report.outcomes);
+}
+
+#[test]
+fn export_preamble_evaluated_once_per_module() {
+    // Same once-per-module contract as `preamble_evaluated_once_per_module`
+    // but through `export` declarations: the preamble env must engage
+    // (previously `export` forced the legacy per-test wrap, re-running
+    // the whole module — incl. its eager fixtures — for every case).
+    let plan = discover(&src(), &[fixture("export_preamble_slow.handl")]).unwrap();
+    let report = run(&src(), &plan);
+    assert_eq!(report.total(), 3);
+    assert_eq!(report.passed(), 3, "{:?}", report.outcomes);
+    let durs: Vec<std::time::Duration> = report.outcomes.iter().map(|o| o.duration).collect();
+    let first = durs[0];
+    let rest: std::time::Duration = durs[1..].iter().sum();
+    assert!(
+        rest * 2 < first,
+        "export preamble appears to be re-evaluated per test: durations {durs:?}"
+    );
+}

@@ -1587,55 +1587,41 @@ fn is_bindable_name(rt: &Runtime, name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Whether `preamble` contains a top-level `export` declaration.
-///
-/// `module_prep` projects only *exported* names when a module has
-/// `export` declarations, which would silently drop private helper
-/// bindings from the eval env — those files keep the legacy per-test
-/// `do { preamble; body }` wrap. The check is a conservative text scan
-/// over statement chunks; a false positive only costs the legacy path.
-fn preamble_has_export(preamble: &str) -> bool {
-    handl_plugin_ext_diag::split_statements(preamble)
-        .iter()
-        .any(|chunk| {
-            let t = chunk.text.trim_start();
-            t == "export" || t.starts_with("export ") || t.starts_with("export\t")
-        })
-}
-
 /// Evaluate `case`'s preamble once and project its top-level bindings
 /// into a [`ModuleEnv`].
 ///
-/// The preamble is prepared exactly like an imported `.hnl` module
-/// ([`handl_runtime::module_prep::prepare_module_mapped`]): executable
-/// file imports are hoisted, module-name imports lower to
-/// `name := "spec.name"` bindings, and — with no `export` declarations —
-/// every top-level bound name is projected into the resulting record.
-/// The record's fields become the per-test globals, so test bodies see
-/// the same names the old `do { preamble; body }` wrap provided.
+/// The preamble is prepared via
+/// [`handl_runtime::module_prep::prepare_module_scope_mapped`]: `export`
+/// declarations are validated and rewritten exactly like an imported
+/// `.hnl` module, but the result record projects **every** top-level
+/// binding — private helpers included — so test bodies see the same
+/// names the old `do { preamble; body }` wrap provided. The record's
+/// fields become the per-test globals.
+///
+/// The preamble is always evaluated through the bound eval engine
+/// (`lex → parse → eval_with_globals`), never `rt.run`'s
+/// `lower_ast`/term-interpreter fast path: that interpreter mints
+/// serialized-`Term` arrow values, which the tree-walk body eval cannot
+/// call ("callee is not an arrow-value"). Engine eval produces
+/// `__arrow__` closure objects that round-trip through the injected
+/// globals correctly.
 fn build_module_env(rt: &Runtime, case: &TestCase) -> Result<ModuleEnv, String> {
-    if preamble_has_export(&case.preamble) {
-        return Err("preamble contains export declarations".to_string());
-    }
-    let prepared = handl_runtime::module_prep::prepare_module_mapped(
+    let prepared = handl_runtime::module_prep::prepare_module_scope_mapped(
         &case.preamble,
         &|spec: &str| Path::new(spec).is_file() || spec.ends_with(".hnl"),
         &|name: &str| is_bindable_name(rt, name),
     )
     .map_err(|e| e.to_string())?;
     let _cov = push_coverage_source(case.env_coverage_source(&prepared));
-    // Same coverage constraint as test bodies: `rt.run`'s arrow-
-    // interpreter fast path records no engine spans, so covered runs
-    // evaluate through the tree-walk engine explicitly.
-    let value = if hnl_exec::coverage::CoverageSession::is_active_local() {
-        let src = Source::new(prepared.source.as_str());
-        rt.lex(&src)
-            .and_then(|toks| rt.parse(&toks))
-            .and_then(|ast| rt.eval_with_globals(&ast, &HashMap::new()))
-    } else {
-        rt.run(&Source::new(prepared.source.as_str()))
-    }
-    .map_err(|e| e.to_string())?;
+    // `rt.run`'s arrow-interpreter fast path records no engine spans and
+    // mints incompatible arrow values — covered or not, the env eval
+    // goes through the tree-walk engine explicitly.
+    let src = Source::new(prepared.source.as_str());
+    let value = rt
+        .lex(&src)
+        .and_then(|toks| rt.parse(&toks))
+        .and_then(|ast| rt.eval_with_globals(&ast, &HashMap::new()))
+        .map_err(|e| e.to_string())?;
     let Value::Object(obj) = value else {
         return Err("module preamble did not evaluate to a record".to_string());
     };
@@ -1728,9 +1714,8 @@ fn ensure_test_runtime(source: &TestKitSource) -> Result<Rc<Runtime>, String> {
 /// per-call globals. Globals are read-only snapshots — a test assigning
 /// a preamble name defines a fresh local — so tests stay isolated exactly
 /// as they were under the old per-test `do { preamble; body }` wrap.
-/// Modules whose preamble cannot be projected (e.g. `export`
-/// declarations, or a preamble that does not evaluate to a record) keep
-/// the legacy wrap.
+/// Modules whose preamble cannot be projected (prep errors, or a
+/// preamble that does not evaluate to a record) keep the legacy wrap.
 ///
 /// Returns the [`TestResult`], measured duration, and any structured
 /// failure detail captured from the assert framework. The `Instant` is
